@@ -220,7 +220,5 @@ Next we parse the input, make the output directory, analyze it, and send it over
               generateText (optLanguage opts) (optIPC opts) dir decls
 \end{code}
 
-\input{Generate.lhs}
-
 \end{document}
 
