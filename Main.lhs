@@ -1,3 +1,5 @@
+%  USE XETEX TO MAKE THIS DOCUMENT
+
 % Local Variables:
 % mode: latex 
 % mmm-classes: literate-haskell-latex
@@ -6,6 +8,7 @@
 \documentclass[10pt]{article}
 \usepackage{listings}
 \usepackage{hyperref}
+\usepackage{lmodern} 
 \usepackage{xcolor}
 \usepackage{fullpage}
 \hypersetup{
@@ -69,7 +72,7 @@ stub are type safe, substantially reducing errors in module usage.  The
 generated stub code wraps the event names, eliminating a class of client errors.  
 
 \section{Design Overview}
-\x1 is built out of three primary parts, which assemble in a pipeline:
+\x\ is built out of three primary parts, which assemble in a pipeline:
 \begin{enumerate}
 \item \emph{Parser} --- A Typescript declaration-file parser, that
   generates a representation of the interface.  
