@@ -60,7 +60,7 @@ executable x1
   -- other-extensions:    
   
   -- Other library packages from which modules are imported.
-  build-depends: base >=4.7 && <4.8, language-typescript,
+  build-depends: base >=4.7 && <4.8, language-typescript, mtl,
                  HStringTemplate, either-unwrap, parsec, directory, filepath
   
   -- Directories containing source files.

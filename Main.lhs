@@ -193,9 +193,11 @@ options =
 
 First we parse options.
 \begin{code}
-main = do
-    args <- getArgs
- 
+
+main = do args <- getArgs
+          mainBody args
+-- this separation makes it easy to call mainBody in ghci
+mainBody args = do
     -- Parse options, getting a list of option actions
     let (actions, nonOptions, errors) = getOpt RequireOrder options args
  
@@ -209,10 +211,10 @@ Next we parse the input, make the output directory, analyze it, and send it over
     decls <- parseDeclarations (optPrefix opts) programText
     let analysis = analyzeDeclarations decls
     if isLeft analysis
-      then do mapM_ (\n -> putStrLn ("ERROR: " ++ n)) $ fromLeft analysis 
+      then do putStrLn ("ERROR " ++ fromLeft analysis)
               putStrLn "Exiting from errors."
       else do let (warnings, analyzedDecls) = fromRight analysis
-              mapM_ (\n -> putStrLn ("WARNING: " ++ n)) warnings
+              mapM_ (\n -> putStrLn ("WARNING " ++ (show n))) warnings
               dir <- optOutputDir opts
               unit <- if (optMakeOutputDir opts) 
                         then do createDirectoryIfMissing True dir
