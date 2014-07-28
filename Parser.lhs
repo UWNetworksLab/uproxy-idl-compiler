@@ -1,3 +1,4 @@
+\begin{code}
 module Parser ( parseDeclarations
               , module Language.TypeScript.Types) where
 import Language.TypeScript
@@ -14,3 +15,4 @@ parseDeclarations filename text =
         then return $ fromRight parseResult
         else do putStrLn $ show $ fromRight parseResult
                 return []
+\end{code}

@@ -1,3 +1,4 @@
+\begin{code}
 module Analyzer (analyzeDeclarations) where
 import Parser
 import Control.Monad.Except
@@ -51,3 +52,4 @@ analyzeDeclarations decls =
     -- from additional arguments to analyzeDeclarations.
     let operators = [declarationsExport]
     in foldl (>>=) (Right ([], decls)) operators
+\end{code}

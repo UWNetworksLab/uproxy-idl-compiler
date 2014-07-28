@@ -1,3 +1,4 @@
+\begin{code}
 module Generator (parseLang, parseIPC, generateText, module Generate.Types) where
 import Data.Char
 import System.IO
@@ -27,3 +28,4 @@ generateText lang ipc source decls = do
             Typescript -> do generateTS ipc source decls
      else do hPutStrLn stderr $ ("Cannot generate code in " ++ (show lang) ++
                                  " for IPC mechanism " ++ (show ipc))
+\end{code}
