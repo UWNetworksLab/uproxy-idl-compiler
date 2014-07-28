@@ -194,10 +194,8 @@ options =
 First we parse options.
 \begin{code}
 
-main = do args <- getArgs
-          mainBody args
--- this separation makes it easy to call mainBody in ghci
-mainBody args = do
+main = do
+    args <- getArgs
     -- Parse options, getting a list of option actions
     let (actions, nonOptions, errors) = getOpt RequireOrder options args
  

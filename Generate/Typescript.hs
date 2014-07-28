@@ -1,3 +1,5 @@
+
+\begin{code}
 module Generate.Typescript where
 
 import Data.Char
@@ -9,7 +11,8 @@ import System.FilePath.Posix
 
 import Generate.Types
 import Parser
-
+\end{code}
+\begin{code}
 indentString = "  "
 
 -- |Simple text indenter.
@@ -27,6 +30,8 @@ hyphenSeparateHumps str =
                       else [c]
   in concat $ map convertChar str
 
+\end{code}
+\begin{code} 
 -- Printers for different parts of the input grammar.  By "Print", we
 -- mean return a printable string value.
 
@@ -56,6 +61,8 @@ paramName (RestParameter nm _) = nm
 returnType :: Maybe Type -> String
 returnType ret = if isJust ret then typeName (fromJust ret) else ""
 
+\end{code}
+\begin{code} 
 -- |Generate the IPC body of the generated body -- an IPC call 
 generateInterfaceIPCCall :: IPCMechanism -> Int -> String -> [Parameter] -> String
 generateInterfaceIPCCall ipc depth method params =
@@ -99,10 +106,16 @@ generateInterface ipc depth decl@(InterfaceDeclaration _ exported
                                               ("body", indentText depth bodyText)] template
           in render filledTemplate
      else ""  -- ignore unexported interfaces.
-  
+\end{code}
+\begin{code} 
+
+-- |Primary driver for generating typescript code.
 generateTS :: IPCMechanism -> FilePath -> [DeclarationElement] -> IO ()
-generateTS ipc source decls = do
-  let generatedFilename = (takeDirectory source) </> ((takeBaseName source) ++ "_stub.ts")
+generateTS ipc sourceDir decls = do
+  let generatedFilename = (takeDirectory sourceDir) </> ((takeBaseName source) ++ "_stub.ts")
   putStrLn $ "> Outputting to file " ++ generatedFilename
   let stubText = concat $ map (generateInterface ipc 1) decls
   writeFile generatedFilename stubText
+
+\end{code}
+
