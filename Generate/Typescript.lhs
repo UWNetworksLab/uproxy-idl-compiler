@@ -1,3 +1,4 @@
+\section{Typescript Generation}
 
 \begin{code}
 module Generate.Typescript where
@@ -12,6 +13,8 @@ import System.FilePath.Posix
 import Generate.Types
 import Parser
 \end{code}
+
+\subsection{Indentation}
 \begin{code}
 indentString = "  "
 
@@ -31,6 +34,8 @@ hyphenSeparateHumps str =
   in concat $ map convertChar str
 
 \end{code}
+
+\subsection{Type Printing}
 \begin{code} 
 -- Printers for different parts of the input grammar.  By "Print", we
 -- mean return a printable string value.
@@ -62,6 +67,8 @@ returnType :: Maybe Type -> String
 returnType ret = if isJust ret then typeName (fromJust ret) else ""
 
 \end{code}
+
+\subsection{IPC--Specific Code Generation}
 \begin{code} 
 -- |Generate the IPC body of the generated body -- an IPC call 
 generateInterfaceIPCCall :: IPCMechanism -> Int -> String -> [Parameter] -> String
