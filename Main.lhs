@@ -62,6 +62,8 @@
 \newcommand{\x}{\emph{X1}}
 \newcommand{\freedom}{\texttt{freedom}}
 \newcommand{\link}[2]{\href{#1}{#2}\footnote{\url{#1}}}
+\newcommand{\ident}[1]{\textit{#1}}  % For referencing identifiers in the source
+\newcommand{\pkgid}[1]{\textit{#1}}  % For referencing Haskell packages.
 %\long\def\ignore#1{}
 \maketitle
 \section{Purpose and Scope}
@@ -128,7 +130,7 @@ data Options = Options { optLanguage :: Generator.Language
                        }
 
 startOptions = Options { optLanguage = Generator.Typescript
-                       , optIPC = Generator.Freedom
+                       , optIPC = Generator.FreedomMessaging
                        , optInput = getContents
                        , optPrefix = "input"
                        , optOutputDir = getCurrentDirectory
@@ -189,8 +191,7 @@ options =
         "Show help" ]
 \end{code}
 
-\subsection{Driver}
-
+\subsection{\texttt{main}}
 First we parse options.
 \begin{code}
 
@@ -203,7 +204,9 @@ main = do
     opts <- foldl (>>=) (return startOptions) actions
 \end{code}
 
-Next we parse the input, make the output directory, analyze it, and send it over to the generator.
+Next we parse the input, analyze it, make the output directory,
+analyze it, and send it over to the generator.
+
 \begin{code}
     programText <- optInput opts
     decls <- parseDeclarations (optPrefix opts) programText
@@ -220,5 +223,7 @@ Next we parse the input, make the output directory, analyze it, and send it over
               generateText (optLanguage opts) (optIPC opts) dir decls
 \end{code}
 
+\input{Analyzer.lhs}
+\input{Generator.lhs}
 \end{document}
 
