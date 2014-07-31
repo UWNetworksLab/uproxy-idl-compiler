@@ -86,9 +86,11 @@ typeName (Predefined (NumberType)) = "number"
 typeName (Predefined (BooleanType)) = "boolean"
 typeName (Predefined (StringType)) = "string"
 typeName (Predefined (VoidType)) = "void"
-typeName (TypeReference (TypeRef (TypeName _ nm) _)) = nm
+typeName (TypeReference (TypeRef (TypeName _ nm) Nothing)) = nm
+typeName (TypeReference (TypeRef (TypeName _ nm) (Just xs))) =
+  nm ++ "<" ++ (intercalate "," $ map typeName xs) ++ ">"
 typeName (ObjectType ty) = undefined 
--- ^not allowed! TODO(lally): Add an error if this is seen.
+-- ^not allowed! TODO(lally): Add an error in the analyzer if this is seen.
 typeName (ArrayType ty) = "[" ++ typeName ty ++ "]"
 typeName (FunctionType typep parms ty) =
   let prefix = typeName ty
@@ -171,8 +173,10 @@ generateInterfaceBody ipc depth declBody =
             signatureReturn = returnType ret
             template = newSTMP templateText :: StringTemplate String
         in render $ setManyAttrib [
-          ("signature", signatureReturn ++ " " ++ nm ++ "(" ++
-                        (concat $ intersperse ", " $ map paramName params) ++ ")"),
+          ("signature", nm ++ "(" ++
+                        (concat $ intersperse ", " $ map paramName params) ++ ")" ++
+                        (if length signatureReturn > 0
+                         then ": " ++ signatureReturn ++ " " else "")),
           ("invocation", if isJust ipc 
                            then generateInterfaceIPCCall (fromJust ipc) depth nm params
                            else "// write your implementation of " ++ nm ++ " here")] template
@@ -196,7 +200,6 @@ generateInterface ipc depth decl@(InterfaceDeclaration _ exported
           in render filledTemplate
      else ""  -- ignore unexported interfaces.
 \end{code}
-%$
 
 \subsection{JSON Generation}
 As we're using the Typescript generator for our skeleton
@@ -335,10 +338,12 @@ generateJson path merge decls = do
                                         "Aborting instead of clobbering."
           else return dflSkeleton
   let result = skel { api = generateJSONApi decls }
-      manifestKeyOrder = ["name", "description", "app", "constraints", "provides", 
-                          "api", "dependencies", "permissions", "type", "value", "ret"]
+      manifestKeyOrder = ["name", "description", "app", "constraints", 
+                          "provides", "api", "dependencies", "permissions", 
+                          "type", "value", "ret"]
       config = Config { confIndent = 4, 
-                        confCompare = keyOrder manifestKeyOrder `mappend` comparing T.length }
+                        confCompare = keyOrder manifestKeyOrder `mappend` 
+                                       comparing T.length }
   BL.writeFile path $ encodePretty' config result
 \end{code}
 
@@ -352,9 +357,10 @@ generateTS ipc sourceDir decls = do
       print s = putStrLn (prefix ++ s)
   if length exportedInterfaces > 0
   then do let generatedFilenameBase = sourceDir </> (head exportedInterfaces)
-          print $ "Parsed input AST: " ++ (intercalate (nl : "    ") $ map show decls)
-          print $ "Parsed input: " ++ (intercalate [nl] $ 
-                                                   map (\d -> renderDeclarationSourceFile [d]) decls)
+          print $ "Parsed input AST: " ++ (
+                   intercalate (nl : "    ") $ map show decls)
+          print $ "Parsed input: " ++ (
+                   intercalate [nl] $ map (\d -> renderDeclarationSourceFile [d]) decls)
           case ipc of
             FreedomMessaging ->  do 
                      print $ "Outputting to files " ++ generatedFilenameBase ++ "_(stub|skel).ts"
