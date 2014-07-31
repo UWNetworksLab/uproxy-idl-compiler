@@ -32,8 +32,11 @@ import Data.Data (Typeable(..), Data(..))
 import Data.HashMap.Strict (toList)
 import Data.List
 import Data.Maybe
-import Data.Text (Text(..), pack, unpack)
+import Data.Monoid (mappend)
+import Data.Ord (comparing)
+import qualified Data.Text as T (Text(..), pack, unpack, length)
 import Data.Vector (fromList)
+import Debug.Trace
 import Language.TypeScript.Pretty
 import Text.StringTemplate
 import System.FilePath.Posix
@@ -46,12 +49,12 @@ import Parser
 \subsection{Indentation and Identifier Generation}
 \begin{code}
 indentString = "  "
-
+nl = toEnum 0x0a :: Char
 -- |Simple text indenter.
 indentText :: Int -> String -> String
 indentText depth input =
   let expanded = concat $ take depth $ repeat indentString
-      replaceChar c | c == '\n' = "\n" ++ expanded
+      replaceChar c | c == nl = [nl] ++ expanded
                     | otherwise = [c]
   in expanded ++ (concatMap replaceChar input)
 
@@ -60,9 +63,11 @@ hyphenSeparateHumps str =
   let convertChar c = if isAlpha c && isUpper c
                       then ['-', toLower c]
                       else [c]
-  in concat $ map convertChar str 
+  in if length str > 0
+     then concat $ [(toLower $ head str)] : map convertChar (tail str)
+     else []
 \end{code}
-% $ <- to keep literate-haskell-mmm happy.
+% <- to keep literate-haskell-mmm happy.
 
 \subsection{Type Printing}
 The parsed representation of the input is quite verbose, so we have to
@@ -71,7 +76,8 @@ rest.
 
 \begin{code}
 -- Printers for different parts of the input grammar.  By "Print", we
--- mean return a printable string value.
+-- mean return a printable string value.  Some accessors also exist, that 
+-- return another type.  They have verb prefixes.
 
 -- |Print the type specified
 typeName :: Type -> String
@@ -81,7 +87,8 @@ typeName (Predefined (BooleanType)) = "boolean"
 typeName (Predefined (StringType)) = "string"
 typeName (Predefined (VoidType)) = "void"
 typeName (TypeReference (TypeRef (TypeName _ nm) _)) = nm
-typeName (ObjectType ty) = undefined -- not allowed!
+typeName (ObjectType ty) = undefined 
+-- ^not allowed! TODO(lally): Add an error if this is seen.
 typeName (ArrayType ty) = "[" ++ typeName ty ++ "]"
 typeName (FunctionType typep parms ty) =
   let prefix = typeName ty
@@ -95,7 +102,27 @@ paramName :: Parameter -> String
 paramName (RequiredOrOptionalParameter _ nm _ _) = nm
 paramName (RestParameter nm _) = "..." ++ nm
 
--- |Print the return type, or  
+-- |Many Types are optional.  Default to 'any' if they're not present. 
+maybeType :: Maybe Type -> String
+maybeType ty = if isJust ty 
+                    then typeName $ fromJust ty
+                    else "any"
+
+-- |Returns an inner type if the outer type is a Promise<inner>, otherwise it 
+-- returns arg.
+stripPromise :: Maybe Type -> Maybe Type
+stripPromise (Just (TypeReference (TypeRef (TypeName _ "Promise") (Just [ty])))) = Just ty
+stripPromise other = other
+
+getParamType :: Parameter -> Maybe Type
+getParamType (RequiredOrOptionalParameter _ _ _ ty) = ty
+getParamType (RestParameter _ ty) = ty
+
+-- |Print the type of a parameter
+paramType :: Parameter -> String
+paramType = maybeType . getParamType
+
+-- |Print the return type, or  nothign at all.
 returnType :: Maybe Type -> String
 returnType ret = if isJust ret then typeName (fromJust ret) else ""
 
@@ -151,7 +178,7 @@ generateInterfaceBody ipc depth declBody =
                            else "// write your implementation of " ++ nm ++ " here")] template
       generateInterfaceBody' (_, _) = ""  -- only produce code for method signatures.
       TypeBody decls = declBody
-  in indentText depth $ intercalate "\n" $ map generateInterfaceBody' decls
+  in indentText depth $ intercalate [nl] $ map generateInterfaceBody' decls
 
 -- |Generate typescript for an interface declaration.
 generateInterface :: Maybe IPCMechanism -> Int -> DeclarationElement -> String
@@ -196,47 +223,50 @@ have to customize it for \ident{FreedomAPI} and
 \ident{FreedomAPIEntry}, as they have unsupported schemas.
 
 \begin{code}
-data FreedomApp = App { script :: Text } deriving (Show, Eq)
-data FreedomConstraints = Constraints { isolation :: Text } deriving (Show, Eq)
+data FreedomApp = App { script :: T.Text } deriving (Show, Eq)
+data FreedomConstraints = Constraints { isolation :: T.Text } deriving (Show, Eq)
 data FreedomAPIEntry = ApiEntry 
-    { apiType :: Text
-    , apiValue :: [Text]
-    , apiRet :: [Text] 
+    { apiType :: T.Text
+    , apiValue :: [T.Text]
+    , apiRet :: [T.Text] 
     } deriving (Show, Eq)
 
-data FreedomAPI = Api { entries :: [(Text, [FreedomAPIEntry])] } deriving (Show, Eq)
+data FreedomAPI = Api { entries :: [(T.Text, [(T.Text, FreedomAPIEntry)])] } deriving (Show, Eq)
 data FreedomManifest = Manifest 
-    { name :: Text
-    , description :: Text
+    { name :: T.Text
+    , description :: T.Text
     , app :: FreedomApp
     , constraints :: FreedomConstraints
-    , provides :: [Text]
+    , provides :: [T.Text]
     , api :: FreedomAPI
-    , dependencies :: [Text]
-    , permissions :: [Text]
+    , dependencies :: [T.Text]
+    , permissions :: [T.Text]
     } deriving (Show, Eq)
 
 $(TH.deriveJSON TH.defaultOptions ''FreedomApp)
 $(TH.deriveJSON TH.defaultOptions ''FreedomConstraints)
-$(TH.deriveJSON TH.defaultOptions {TH.fieldLabelModifier = drop 4} ''FreedomAPIEntry)
+$(TH.deriveJSON TH.defaultOptions { TH.fieldLabelModifier = 
+                                     \f -> map toLower $ drop 3 f }
+                                   ''FreedomAPIEntry)
 $(TH.deriveJSON TH.defaultOptions ''FreedomManifest)
 
 -- |FreedomAPI uses custom keys, so do this by hand.
 instance FromJSON FreedomAPI where
     parseJSON (Object v) = 
-        let 
-            readEntry (k, obj) = 
+        let readEntry (k, obj) = 
                 let parsed = fromJSON obj
                     interpret (Error _) = []
                     interpret (Success s) = s
-                in (k, interpret parsed) :: (Text, [FreedomAPIEntry])
+                in (k, interpret parsed) :: (T.Text, [FreedomAPIEntry])
             allEntries = map readEntry $ toList v
         in mzero -- Api <$> (toList v <$> ZipList readEntry) -- FIXME
     parseJSON _ = mzero
 
 instance ToJSON FreedomAPI where
-    toJSON api = object $ map (\(k,v) -> (k, toJSON v)) $ entries api
-
+    toJSON api = let serializeMember (mem, body) = (mem, toJSON body)
+                     serializeAPI (api, mems) = (api, object $ map serializeMember mems)
+                 in object $ map serializeAPI $ entries api
+                                                                    
 \end{code}
 %$
 \paragraph{Method Generation}
@@ -247,18 +277,20 @@ The code to generate each method is pretty simple: fill in a
 Sadly we have to pattern match two-deep here, due to the verbose AST
 generated from the parser.
 \begin{code}
-generateJSONMethod :: String -> ParameterListAndReturnType -> FreedomAPIEntry
+generateJSONMethod :: String -> ParameterListAndReturnType -> (T.Text, FreedomAPIEntry)
 generateJSONMethod nm (ParameterListAndReturnType _ params ret) =
-    let paramNames = map paramName params
-        retType = if isJust ret then [typeName (fromJust ret)] else []
-    in ApiEntry { apiType = "method", apiValue = map pack paramNames, apiRet = map pack retType }
+    let paramTypes = map (maybeType . stripPromise . getParamType) params
+        retType = if isJust ret then [typeName . fromJust . stripPromise $ ret] else []
+    in (T.pack nm, ApiEntry { apiType = "method", 
+                              apiValue = map T.pack paramTypes, 
+                              apiRet = map T.pack retType })
 
-generateJSONApis :: DeclarationElement -> (Text, [FreedomAPIEntry])
+generateJSONApis :: DeclarationElement -> (T.Text, [(T.Text, FreedomAPIEntry)])
 generateJSONApis (InterfaceDeclaration _ _ iface@(Interface _ name _ _ body)) =
     let (TypeBody bodymems) = body
         makeEntry (_,(MethodSignature nm _ params)) = Just $ generateJSONMethod nm params
         makeEntry _ = Nothing
-    in (pack name, mapMaybe makeEntry bodymems)
+    in (T.pack name, mapMaybe makeEntry bodymems)
 
 generateJSONApi :: [DeclarationElement] -> FreedomAPI
 generateJSONApi decls =
@@ -284,11 +316,11 @@ generateJson path merge decls = do
   let firstIface = head $ mapMaybe exportedInterfaceName decls
       moduleName = hyphenSeparateHumps firstIface
       dflSkeleton = Manifest 
-                    { name = pack moduleName
-                    , description = pack ""
-                    , app = App { script = pack $ moduleName ++ ".js" }
-                    , constraints = Constraints { isolation = pack "never" }
-                    , provides = [pack firstIface]
+                    { name = T.pack moduleName
+                    , description = T.pack ""
+                    , app = App { script = T.pack $ moduleName ++ ".js" }
+                    , constraints = Constraints { isolation = T.pack "never" }
+                    , provides = [T.pack firstIface]
                     , api = Api { entries = [] }
                     , dependencies = []
                     , permissions = []
@@ -303,7 +335,11 @@ generateJson path merge decls = do
                                         "Aborting instead of clobbering."
           else return dflSkeleton
   let result = skel { api = generateJSONApi decls }
-  BL.writeFile path $ encodePretty result 
+      manifestKeyOrder = ["name", "description", "app", "constraints", "provides", 
+                          "api", "dependencies", "permissions", "type", "value", "ret"]
+      config = Config { confIndent = 4, 
+                        confCompare = keyOrder manifestKeyOrder `mappend` comparing T.length }
+  BL.writeFile path $ encodePretty' config result
 \end{code}
 
 \subsection{Driver}
@@ -312,22 +348,25 @@ generateJson path merge decls = do
 generateTS :: IPCMechanism -> FilePath -> [DeclarationElement] -> IO ()
 generateTS ipc sourceDir decls = do
   let exportedInterfaces = mapMaybe exportedInterfaceName decls
+      prefix = [nl, nl, '>', ' ']                          
+      print s = putStrLn (prefix ++ s)
   if length exportedInterfaces > 0
   then do let generatedFilenameBase = sourceDir </> (head exportedInterfaces)
-          putStrLn $ "> Parsed input AST: " ++ (intercalate "\n    " $ map show decls)
-          putStrLn $ "\n\n> Parsed input: " ++ renderDeclarationSourceFile decls
+          print $ "Parsed input AST: " ++ (intercalate (nl : "    ") $ map show decls)
+          print $ "Parsed input: " ++ (intercalate [nl] $ 
+                                                   map (\d -> renderDeclarationSourceFile [d]) decls)
           case ipc of
             FreedomMessaging ->  do 
-                     putStrLn $ "\n\n> Outputting to files " ++ generatedFilenameBase ++ "_(stub|skel).ts"
+                     print $ "Outputting to files " ++ generatedFilenameBase ++ "_(stub|skel).ts"
                      let stubText = concatMap (generateInterface (Just ipc) 1) decls
                          skelText = concatMap (generateInterface Nothing 1) decls
                      writeFile (generatedFilenameBase ++ "_stub.ts") stubText
                      writeFile (generatedFilenameBase ++ "_skel.ts") skelText
             FreedomJSON -> do
-                     putStrLn $ "\n\n> Output to files " ++ generatedFilenameBase ++ "_stub.ts and " ++
-                               generatedFilenameBase ++ ".json."
+                     print $ "Output to files " ++ generatedFilenameBase ++ "_stub.ts and " ++
+                           generatedFilenameBase ++ ".json."
                      let skelText = concatMap (generateInterface Nothing 1) decls
-                     generateJson (generatedFilenameBase ++ ".json") True decls
+                     generateJson (generatedFilenameBase ++ ".json") False decls
                      writeFile (generatedFilenameBase ++ "_skel.ts") skelText
   else hPutStrLn stderr "> Failure.  No exported interfaces."
 \end{code}

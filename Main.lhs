@@ -165,7 +165,7 @@ options =
     , Option "c" ["ipc"]
         (ReqArg
             (\arg opt -> do let ipc = parseIPC arg
-                            if isLeft ipc
+                            if isRight ipc
                                then return opt { optIPC = (fromRight ipc) }
                                else do hPutStrLn stderr $ fromLeft ipc
                                        exitWith $ ExitFailure 1)
@@ -215,7 +215,7 @@ analyze it, and send it over to the generator.
       then do putStrLn ("ERROR " ++ fromLeft analysis)
               putStrLn "Exiting from errors."
       else do let (warnings, analyzedDecls) = fromRight analysis
-              mapM_ (\n -> putStrLn ("WARNING " ++ (show n))) warnings
+              mapM_ (\w -> putStrLn ("WARNING " ++ (show w))) warnings
               dir <- optOutputDir opts
               unit <- if (optMakeOutputDir opts) 
                         then do createDirectoryIfMissing True dir
