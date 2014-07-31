@@ -14,6 +14,7 @@ module Analyzer (analyzeDeclarations) where
 import Parser
 import Control.Monad.Except
 import Data.Either
+import Data.List (intercalate)
 import Data.Maybe
 import Data.Tuple
 \end{code}
@@ -78,9 +79,13 @@ interfaceHasPromises (Parser.InterfaceDeclaration _ _ iface) =
         Just (nm, retTy)
       methodReturn _ = Nothing
       isPromise (nm, (TypeRef (TypeName _ outer) (Just params))) =
-        outer == "Promise" && length params > 1
+        outer == "Promise"
   in any isPromise $ mapMaybe methodReturn $ map snd members
 interfaceHasPromises _ = False
+
+interfaceName :: DeclarationElement -> String
+interfaceName (Parser.InterfaceDeclaration _ _ (Parser.Interface _ nm _ _ _)) = nm
+interfaceName _ = ""
 
 -- |Verifies that exported interfaces have some async (e.g.,
 -- Promise<>) members.
@@ -89,7 +94,9 @@ exportedInterfaceHasPromises input@(warnings, decls) =
     let exported = filter exportsInterface decls
         noPromises = WarnGeneral {
           wgWarnName = WarnNoPromises,
-          wgMessage = "No Promise<> return types on an exported interface."}
+          wgMessage = "No Promise<> return types on an exported interface: "
+                      ++ (intercalate ", " $ map interfaceName $ 
+                          filter (not . interfaceHasPromises) exported) }
     in if any interfaceHasPromises exported
        then Right input
        else Right (warnings ++ [noPromises], decls)
