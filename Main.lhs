@@ -66,6 +66,8 @@
 \newcommand{\pkgid}[1]{\textit{#1}}  % For referencing Haskell packages.
 %\long\def\ignore#1{}
 \maketitle
+\tableofcontents
+\newpage
 \section{Purpose and Scope}
 
 The \x\  compiler generates a skeletal \freedom\  module implementation and an IPC
@@ -88,127 +90,48 @@ generated stub code wraps the event names, eliminating a class of client errors.
 Finally, a \emph{Driver} (called \texttt{main})  runs the pipeline.
 
 \begin{code}
-module Main (main) where 
+module Main (main) where
+import System.Directory (createDirectoryIfMissing)
+import System.Environment (getArgs)
+import Data.Either.Unwrap (fromLeft, fromRight, isLeft, isRight)
+
+import Options
 import Parser
 import Analyzer
 import Generator
-
-import System.Console.GetOpt
-import System.Directory
-import System.Environment
-import System.FilePath.Posix
-import System.IO
-import System.Exit
-import Data.Either.Unwrap
 \end{code}
 
 \section{Driver}
 The application driver parses arguments and runs the pipeline.
 
-
-\subsection{Options and Parsing}
-The configuration for the driver is via
-\link{http://www.haskell.org/haskellwiki/High-level\_option\_handling\_with\_GetOpt}{\texttt{GetOpt}}.
-The primary options are:
-\begin{enumerate}
-\item \texttt{optLanguage} --- generated output language.  Defaults to Typescript.
-\item \texttt{optIPC} --- IPC mechanism.  Defaults to freedom.
-\item \texttt{optInput} --- input, by default \texttt{stdin}.
-\item \texttt{optPrefix} --- prefix for generated filenames.  Defaults to \texttt{input}.
-\item \texttt{optOutputDir} --- output directory.  Defaults to current directory.
-\item \texttt{optMakeOutputDir} --- whether to create the output
-  directory, or just fail if it doesn't exist. Defaults to false.
-\end{enumerate}
-
-\begin{code}
-data Options = Options { optLanguage :: Generator.Language
-                       , optIPC :: Generator.IPCMechanism  
-                       , optInput :: IO String
-                       , optPrefix :: String
-                       , optOutputDir :: IO FilePath
-                       , optMakeOutputDir :: Bool 
-                       }
-
-startOptions = Options { optLanguage = Generator.Typescript
-                       , optIPC = Generator.FreedomMessaging
-                       , optInput = getContents
-                       , optPrefix = "input"
-                       , optOutputDir = getCurrentDirectory
-                       , optMakeOutputDir = False }
-
-options :: [ OptDescr (Options -> IO Options) ]
-options =
-    [ Option "i" ["input"]
-        -- as a convenience, pull the filename and make it the prefix.
-        (ReqArg
-            (\arg opt -> do let prefix = takeBaseName arg
-                            return $ opt { optInput = readFile arg, optPrefix = prefix })
-            "FILE")
-        "Input file"
- 
-    , Option "d" ["outputdir"]
-        (ReqArg
-            (\arg opt -> return opt { optOutputDir = (return arg) })
-            "DIR")
-        "Output directory"
- 
-    , Option "l" ["language"]
-        (ReqArg
-            (\arg opt -> do let lang = parseLang arg
-                            if isLeft lang
-                              then return opt { optLanguage = (fromRight lang) }
-                              else do hPutStrLn stderr $ fromLeft lang
-                                      exitWith $ ExitFailure 1)
-            "LANG")
-        "Enable verbose messages"
-      
-    , Option "c" ["ipc"]
-        (ReqArg
-            (\arg opt -> do let ipc = parseIPC arg
-                            if isRight ipc
-                               then return opt { optIPC = (fromRight ipc) }
-                               else do hPutStrLn stderr $ fromLeft ipc
-                                       exitWith $ ExitFailure 1)
-            "IPC")
-        "IPC Mechanism to Use in Generated Code"
-    , Option "p" ["prefix"]
-        (ReqArg
-            (\arg opt -> return opt { optPrefix = arg }) 
-            "PREFIX")
-        "Prefix for generated files."
- 
-    , Option "V" ["version"]
-        (NoArg
-            (\_ -> do hPutStrLn stderr "Version 0.01"
-                      exitWith ExitSuccess))
-        "Print version"
- 
-    , Option "h" ["help"]
-        (NoArg
-            (\_ -> do prg <- getProgName
-                      hPutStrLn stderr (usageInfo prg options)
-                      exitWith ExitSuccess))
-        "Show help" ]
-\end{code}
-
 \subsection{\texttt{main}}
-First we parse options.
+First we parse options.  See Section~\ref{Options} for details.  Next,
+we look for inputs to process.  They can be specified via options or
+as non-options.  Try both.
 \begin{code}
-
 main = do
     args <- getArgs
-    -- Parse options, getting a list of option actions
-    let (actions, nonOptions, errors) = getOpt RequireOrder options args
- 
-    -- Here we thread startOptions through all supplied option actions
-    opts <- foldl (>>=) (return startOptions) actions
+    -- Get program options and remaining args.
+    (opts, nonOptions) <- getOptions args
+    programText <- optInput opts
+    -- build a list of possible input sources
+    -- TODO(lally): consider using the -i processing path in options
+    -- for each input, threading new Options between each input to mutate
+    -- optPrefix.
+    let nonOptionSources = map (\f -> do readFile f) nonOptions
+        inputSources = if length programText > 0
+                       then (return programText) : nonOptionSources
+                       else nonOptionSources
+    -- and run them all through processInput.
+    mapM_ (\s -> do text <- s; processInput text opts) inputSources
 \end{code}
-
+% $
 Next we parse the input, analyze it, make the output directory,
-analyze it, and send it over to the generator.
+analyze it, and send it over to the generator.  We do that in a
+separate \ident{processInput} function.
 
 \begin{code}
-    programText <- optInput opts
+processInput programText opts = do
     decls <- parseDeclarations (optPrefix opts) programText
     let analysis = analyzeDeclarations decls
     if isLeft analysis
@@ -220,8 +143,10 @@ analyze it, and send it over to the generator.
               unit <- if (optMakeOutputDir opts) 
                         then do createDirectoryIfMissing True dir
                         else return ()
-              generateText (optLanguage opts) (optIPC opts) dir decls
+              generateText opts dir decls
 \end{code}
+
+\input{Options.lhs}
 
 \input{Analyzer.lhs}
 \input{Generator.lhs}
