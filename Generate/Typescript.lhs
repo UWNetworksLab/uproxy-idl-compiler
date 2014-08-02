@@ -22,7 +22,7 @@ module Generate.Typescript where
 
 import Control.Applicative
 import Control.Monad (mzero)
-import Data.Aeson -- (FromJSON(..), ToJSON(..), Object, (.:), decode, object)
+import Data.Aeson
 import qualified Data.Aeson.TH as TH (deriveJSON, defaultOptions, fieldLabelModifier)
 import Data.Aeson.Encode.Pretty
 import qualified Data.ByteString.Lazy.Char8 as C8 (pack)
@@ -43,6 +43,7 @@ import System.FilePath.Posix
 import System.IO (stderr, hPutStrLn)
 
 import Generate.Types
+import Options
 import Parser
 \end{code}
 
@@ -67,7 +68,6 @@ hyphenSeparateHumps str =
      then concat $ [(toLower $ head str)] : map convertChar (tail str)
      else []
 \end{code}
-% <- to keep literate-haskell-mmm happy.
 
 \subsection{Type Printing}
 The parsed representation of the input is quite verbose, so we have to
@@ -89,8 +89,7 @@ typeName (Predefined (VoidType)) = "void"
 typeName (TypeReference (TypeRef (TypeName _ nm) Nothing)) = nm
 typeName (TypeReference (TypeRef (TypeName _ nm) (Just xs))) =
   nm ++ "<" ++ (intercalate "," $ map typeName xs) ++ ">"
-typeName (ObjectType ty) = undefined 
--- ^not allowed! TODO(lally): Add an error in the analyzer if this is seen.
+typeName (ObjectType ty) = "object" 
 typeName (ArrayType ty) = "[" ++ typeName ty ++ "]"
 typeName (FunctionType typep parms ty) =
   let prefix = typeName ty
@@ -200,7 +199,7 @@ generateInterface ipc depth decl@(InterfaceDeclaration _ exported
           in render filledTemplate
      else ""  -- ignore unexported interfaces.
 \end{code}
-
+% $
 \subsection{JSON Generation}
 As we're using the Typescript generator for our skeleton
 implementation, we only have the JSON to generate separately for
@@ -271,7 +270,8 @@ instance ToJSON FreedomAPI where
                  in object $ map serializeAPI $ entries api
                                                                     
 \end{code}
-%$
+% $
+
 \paragraph{Method Generation}
 The code to generate each method is pretty simple: fill in a
 \ident{FreedomAPI} for each exported interface, and within each, a
@@ -280,27 +280,56 @@ The code to generate each method is pretty simple: fill in a
 Sadly we have to pattern match two-deep here, due to the verbose AST
 generated from the parser.
 \begin{code}
-generateJSONMethod :: String -> ParameterListAndReturnType -> (T.Text, FreedomAPIEntry)
-generateJSONMethod nm (ParameterListAndReturnType _ params ret) =
-    let paramTypes = map (maybeType . stripPromise . getParamType) params
+
+-- |Match input types against what Freedom allows, and expand ...rest
+-- arguments into 'optRestArgCount' args.
+generateJSONMethodArgs :: Options -> [Parameter] -> [String]
+generateJSONMethodArgs opts params =
+    let translateType :: Type -> String
+        translateType t@(Predefined (NumberType)) = typeName t
+        translateType t@(Predefined (BooleanType)) = typeName t
+        translateType t@(Predefined (StringType)) = typeName t
+        translateType (TypeReference (TypeRef (TypeName _ "Blob") Nothing)) = "blob"
+        translateType (TypeReference (TypeRef (TypeName _ "ArrayBuffer") Nothing)) = "buffer"
+        translateType _ = "object"
+        -- ^ We should try to catch as many bad inputs in the Analyzer.  It's too late here, 
+        -- we've already committed to generation by this point.
+        isRest (RestParameter _ _) = True
+        isRest _ = False
+        lastArgIsRest = (length params > 0) && (isRest $ last params)
+        defaultType = (Predefined (StringType))
+        getArgTypes dfl ts = map (\a -> maybe dfl id (getParamType a)) ts
+        argList = if lastArgIsRest
+                  then let totalArgs = max (optRestArgCount opts) (length params)
+                           restArgType = maybe defaultType id $ getParamType $ last params
+                           realArgTypes = getArgTypes restArgType params
+                           syntheticArgs = repeat restArgType
+                       in take totalArgs $ realArgTypes ++ syntheticArgs
+                  else let defaultType = (Predefined (StringType))
+                       in getArgTypes defaultType params
+    in map translateType argList
+
+generateJSONMethod :: Options -> String -> ParameterListAndReturnType -> (T.Text, FreedomAPIEntry)
+generateJSONMethod opts nm (ParameterListAndReturnType _ params ret) =
+    let paramTypes = generateJSONMethodArgs opts params
         retType = if isJust ret then [typeName . fromJust . stripPromise $ ret] else []
     in (T.pack nm, ApiEntry { apiType = "method", 
                               apiValue = map T.pack paramTypes, 
                               apiRet = map T.pack retType })
 
-generateJSONApis :: DeclarationElement -> (T.Text, [(T.Text, FreedomAPIEntry)])
-generateJSONApis (InterfaceDeclaration _ _ iface@(Interface _ name _ _ body)) =
+generateJSONApis :: Options -> DeclarationElement -> (T.Text, [(T.Text, FreedomAPIEntry)])
+generateJSONApis opts (InterfaceDeclaration _ _ iface@(Interface _ name _ _ body)) =
     let (TypeBody bodymems) = body
-        makeEntry (_,(MethodSignature nm _ params)) = Just $ generateJSONMethod nm params
+        makeEntry (_,(MethodSignature nm _ params)) = Just $ generateJSONMethod opts nm params
         makeEntry _ = Nothing
     in (T.pack name, mapMaybe makeEntry bodymems)
 
-generateJSONApi :: [DeclarationElement] -> FreedomAPI
-generateJSONApi decls =
+generateJSONApi :: Options -> [DeclarationElement] -> FreedomAPI
+generateJSONApi opts decls =
     let processDecl decl = 
             let iface = exportedInterfaceName decl
             in if isJust iface
-               then Just $ generateJSONApis decl
+               then Just $ generateJSONApis opts decl
                else Nothing
         apis = mapMaybe processDecl decls
     in Api { entries = apis }
@@ -314,8 +343,8 @@ if it exists, or a simple empty one derived from the declarations.
 
 \begin{code}
 -- |A unique generation function that can merge a prior definition into the current one.
-generateJson :: FilePath -> Bool -> [DeclarationElement] -> IO ()
-generateJson path merge decls = do
+generateJson :: Options -> FilePath -> Bool -> [DeclarationElement] -> IO ()
+generateJson opts path merge decls = do
   let firstIface = head $ mapMaybe exportedInterfaceName decls
       moduleName = hyphenSeparateHumps firstIface
       dflSkeleton = Manifest 
@@ -337,7 +366,7 @@ generateJson path merge decls = do
                   else do fail $ path ++ ": failed to parse.  " ++ 
                                         "Aborting instead of clobbering."
           else return dflSkeleton
-  let result = skel { api = generateJSONApi decls }
+  let result = skel { api = generateJSONApi opts decls }
       manifestKeyOrder = ["name", "description", "app", "constraints", 
                           "provides", "api", "dependencies", "permissions", 
                           "type", "value", "ret"]
@@ -350,9 +379,10 @@ generateJson path merge decls = do
 \subsection{Driver}
 \begin{code}
 -- |Primary driver for generating typescript code.
-generateTS :: IPCMechanism -> FilePath -> [DeclarationElement] -> IO ()
-generateTS ipc sourceDir decls = do
-  let exportedInterfaces = mapMaybe exportedInterfaceName decls
+generateTS :: Options -> FilePath -> [DeclarationElement] -> IO ()
+generateTS options sourceDir decls = do
+  let ipc = optIPC options
+      exportedInterfaces = mapMaybe exportedInterfaceName decls
       prefix = [nl, nl, '>', ' ']                          
       print s = putStrLn (prefix ++ s)
   if length exportedInterfaces > 0
@@ -372,7 +402,7 @@ generateTS ipc sourceDir decls = do
                      print $ "Output to files " ++ generatedFilenameBase ++ "_stub.ts and " ++
                            generatedFilenameBase ++ ".json."
                      let skelText = concatMap (generateInterface Nothing 1) decls
-                     generateJson (generatedFilenameBase ++ ".json") False decls
+                     generateJson options (generatedFilenameBase ++ ".json") False decls
                      writeFile (generatedFilenameBase ++ "_skel.ts") skelText
   else hPutStrLn stderr "> Failure.  No exported interfaces."
 \end{code}
