@@ -11,12 +11,14 @@ It's also a good place for warnings about style or API misuse.
 
 \begin{code}
 module Analyzer (analyzeDeclarations) where
-import Parser
 import Control.Monad.Except
 import Data.Either
 import Data.List (intercalate)
 import Data.Maybe
 import Data.Tuple
+
+import Options
+import Parser
 \end{code}
 
 \subsection{Warnings}
@@ -61,50 +63,36 @@ doesn't export any interfaces, or when exported interfaces don't have
 any IPC-enabled methods (marked with \textit{Promise<>} return types).
 \begin{code}
   
-type SuccessfulInput = ([Warning], [Parser.DeclarationElement])
+type SuccessfulInput = ([Warning], [Parser.Class])
 type EndResult = Either String SuccessfulInput
 
--- |Returns whether the declaration has an 'export' tag.
-exportsInterface :: DeclarationElement -> Bool
-exportsInterface (Parser.InterfaceDeclaration _ (Just _) _) = True
-exportsInterface _ = False
-
-interfaceHasPromises :: DeclarationElement -> Bool
-interfaceHasPromises (Parser.InterfaceDeclaration _ _ iface) =
-  let (Parser.Interface _ _ _ _ body) = iface
-      (TypeBody members) = body
-      methodReturn (Parser.MethodSignature nm _ (
-                         Parser.ParameterListAndReturnType _ _ (
-                            Just (TypeReference retTy)))) =
-        Just (nm, retTy)
-      methodReturn _ = Nothing
-      isPromise (nm, (TypeRef (TypeName _ outer) (Just params))) =
-        outer == "Promise"
-  in any isPromise $ mapMaybe methodReturn $ map snd members
-interfaceHasPromises _ = False
-
-interfaceName :: DeclarationElement -> String
-interfaceName (Parser.InterfaceDeclaration _ _ (Parser.Interface _ nm _ _ _)) = nm
-interfaceName _ = ""
+interfaceHasPromises :: Class -> Bool
+interfaceHasPromises cls =
+  let methodHasPromises :: Method -> Bool
+      methodHasPromises meth =
+        let retTypeIsPromise ty = (typeName ty) == "Promise" &&
+                                  (length . typeArgs) ty > 0
+        in maybe False retTypeIsPromise $ methodReturn meth
+  in any methodHasPromises $ classMethods cls
 
 -- |Verifies that exported interfaces have some async (e.g.,
 -- Promise<>) members.
-exportedInterfaceHasPromises :: SuccessfulInput -> EndResult
-exportedInterfaceHasPromises input@(warnings, decls) =
-    let exported = filter exportsInterface decls
+exportedInterfaceHasPromises :: Options -> SuccessfulInput -> EndResult
+exportedInterfaceHasPromises opts input@(warnings, decls) =
+    let exported = filter classExported decls
         noPromises = WarnGeneral {
           wgWarnName = WarnNoPromises,
           wgMessage = "No Promise<> return types on an exported interface: "
-                      ++ (intercalate ", " $ map interfaceName $ 
+                      ++ (intercalate ", " $ map className $ 
                           filter (not . interfaceHasPromises) exported) }
     in if any interfaceHasPromises exported
        then Right input
        else Right (warnings ++ [noPromises], decls)
 
 -- |Verifies that at least one declaration has 
-declarationsExport :: SuccessfulInput -> EndResult
-declarationsExport input@(warnings, decls) =
-  let anyExported = any exportsInterface decls
+declarationsExport :: Options -> SuccessfulInput -> EndResult
+declarationsExport opts input@(warnings, decls) =
+  let anyExported = any classExported decls
       noneFound = WarnGeneral {
         wgWarnName = WarnNoExportedDeclarations,
         wgMessage = "No exported interfaces found.  No output will be generated." }
@@ -126,10 +114,10 @@ attached to the Left will be an error message.
 -- |Put any validation rules here.  Returns Right only if it's
 -- acceptable.  Left indicates fatal errors.  The array of strings on
 -- the right indicate non-fatal warnings.
-analyzeDeclarations :: [Parser.DeclarationElement] -> EndResult
-analyzeDeclarations decls =
+analyzeDeclarations :: Options -> [Parser.Class] -> EndResult
+analyzeDeclarations opts decls =
     -- 'operators' is currently a static list, but could be determined
     -- from additional arguments to analyzeDeclarations.
-    let operators = [declarationsExport, exportedInterfaceHasPromises]
+    let operators = [declarationsExport opts, exportedInterfaceHasPromises opts]
     in foldl (>>=) (Right ([], decls)) operators
 \end{code}
