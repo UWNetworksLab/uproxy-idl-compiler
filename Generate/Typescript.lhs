@@ -79,30 +79,6 @@ rest.
 -- mean return a printable string value.  Some accessors also exist, that 
 -- return another type.  They have verb prefixes.
 
--- |Print the type specified
-typeName :: Type -> String
-typeName (Predefined (AnyType)) = "any"
-typeName (Predefined (NumberType)) = "number"
-typeName (Predefined (BooleanType)) = "boolean"
-typeName (Predefined (StringType)) = "string"
-typeName (Predefined (VoidType)) = "void"
-typeName (TypeReference (TypeRef (TypeName _ nm) Nothing)) = nm
-typeName (TypeReference (TypeRef (TypeName _ nm) (Just xs))) =
-  nm ++ "<" ++ (intercalate "," $ map typeName xs) ++ ">"
-typeName (ObjectType ty) = "object" 
-typeName (ArrayType ty) = "[" ++ typeName ty ++ "]"
-typeName (FunctionType typep parms ty) =
-  let prefix = typeName ty
-  in prefix ++ " function(" ++ (intercalate ", " $ map paramName parms) ++ ")"
-typeName (ConstructorType typep parms ty) = 
-  let prefix = typeName ty
-  in prefix ++ " constructor(" ++ (intercalate ", " $ map paramName parms) ++ ")"
-
--- |Print the name of a parameter
-paramName :: Parameter -> String
-paramName (RequiredOrOptionalParameter _ nm _ _) = nm
-paramName (RestParameter nm _) = "..." ++ nm
-
 -- |Many Types are optional.  Default to 'any' if they're not present. 
 maybeType :: Maybe Type -> String
 maybeType ty = if isJust ty 
@@ -112,30 +88,25 @@ maybeType ty = if isJust ty
 -- |Returns an inner type if the outer type is a Promise<inner>, otherwise it 
 -- returns arg.
 stripPromise :: Maybe Type -> Maybe Type
-stripPromise (Just (TypeReference (TypeRef (TypeName _ "Promise") (Just [ty])))) = Just ty
+stripPromise (Just ty@(Type { typeName = "Promise"})) = Just $ head $ typeArgs ty
 stripPromise other = other
 
-getParamType :: Parameter -> Maybe Type
-getParamType (RequiredOrOptionalParameter _ _ _ ty) = ty
-getParamType (RestParameter _ ty) = ty
-
--- |Print the type of a parameter
-paramType :: Parameter -> String
-paramType = maybeType . getParamType
-
--- |Print the return type, or  nothign at all.
+-- |Print the return type, or nothing at all.
 returnType :: Maybe Type -> String
 returnType ret = if isJust ret then typeName (fromJust ret) else ""
 
 -- |Print the name of an interface name, if it's exported.  Otherwise Nothing.
-exportedInterfaceName :: DeclarationElement -> Maybe String
-exportedInterfaceName (InterfaceDeclaration _ (Just _) (Interface _ nm _ _ _)) =
-    Just nm
-exportedInterfaceName _ = Nothing
-  
+exportedInterfaceName :: Class -> Maybe String
+exportedInterfaceName cls = if classExported cls
+                            then Just $ className cls
+                            else Nothing
 
+printType :: Type -> String
+printType ty = if null $ typeArgs ty
+               then typeName ty
+               else (typeName ty) ++ "<" ++ (intercalate "," $ map printType $ typeArgs ty) ++ ">"
 \end{code}
-% $
+% 
 
 \subsection{Typescript Code Generation}
 For \ident{FreedomMessaging}, we generate Typescript twice: first for
@@ -149,52 +120,49 @@ case.
 
 \begin{code}
 -- |Generate the IPC call of the generated method body.
-generateInterfaceIPCCall :: IPCMechanism -> Int -> String -> [Parameter] -> String
+generateInterfaceIPCCall :: IPCMechanism -> Int -> String -> [(String, Type)] -> String
 generateInterfaceIPCCall ipc depth method params =
     case ipc of
       FreedomMessaging ->
         let message = "\"" ++ hyphenSeparateHumps method ++ "\""
-            callBody = intercalate ", " $ message : map paramName params
+            callBody = intercalate ", " $ message : map fst params
         in "freedom.send(" ++ callBody ++ ");"
       -- only IPC mechanism supported.  Add others here.
 
 -- |Generate typescript for an interface's body. Pass 'Nothing' for
 -- the IPC type if the body should be an empty skeleton.
-generateInterfaceBody :: Maybe IPCMechanism -> Int -> TypeBody -> String
-generateInterfaceBody ipc depth declBody =
-  let generateInterfaceBody' (_, (MethodSignature nm opt (
-                                     ParameterListAndReturnType _ params ret))) =
-        let templateText = unlines [
+generateInterfaceBody :: Maybe IPCMechanism -> Int -> Class -> String
+generateInterfaceBody ipc depth cls =
+  let generateInterfaceBody' meth = 
+        let nm = methodName meth
+            templateText = unlines [
                             "$signature$ {",
                             indentString ++ "$invocation$",
                             "}" ]
-            args = intercalate ", " $ map show params
-            signatureReturn = returnType ret
+            signatureReturn = maybe "" typeName (methodReturn meth)
             template = newSTMP templateText :: StringTemplate String
+            params = methodParams meth
         in render $ setManyAttrib [
           ("signature", nm ++ "(" ++
-                        (concat $ intersperse ", " $ map paramName params) ++ ")" ++
+                        (concat $ intersperse ", " $ map fst params) ++ ")" ++
                         (if length signatureReturn > 0
                          then ": " ++ signatureReturn ++ " " else "")),
           ("invocation", if isJust ipc 
                            then generateInterfaceIPCCall (fromJust ipc) depth nm params
                            else "// write your implementation of " ++ nm ++ " here")] template
-      generateInterfaceBody' (_, _) = ""  -- only produce code for method signatures.
-      TypeBody decls = declBody
-  in indentText depth $ intercalate [nl] $ map generateInterfaceBody' decls
+  in indentText depth $ intercalate [nl] $ map generateInterfaceBody' $ classMethods cls
 
 -- |Generate typescript for an interface declaration.
-generateInterface :: Maybe IPCMechanism -> Int -> DeclarationElement -> String
-generateInterface ipc depth decl@(InterfaceDeclaration _ exported
-                                  iface@(Interface _ name _ _ body)) =
-  if isJust exported
-     then let templateText = unlines [ "interface $stubname$ {",
-                                       "$body$",
-                                       "}" ]
-              bodyText = generateInterfaceBody ipc (depth+1) body 
-              template = newSTMP templateText :: StringTemplate String
-              filledTemplate = setManyAttrib [
-                ("stubname", name),
+generateInterface :: Maybe IPCMechanism -> Int -> Class -> String
+generateInterface ipc depth decl =
+  if classExported decl
+  then let templateText = unlines [ "interface $stubname$ {",
+                                    "$body$",
+                                    "}" ]
+           bodyText = generateInterfaceBody ipc (depth+1) decl
+           template = newSTMP templateText :: StringTemplate String
+           filledTemplate = setManyAttrib [
+                ("stubname", className decl),
                 ("body", indentText depth bodyText)] template
           in render filledTemplate
      else ""  -- ignore unexported interfaces.
@@ -283,55 +251,40 @@ generated from the parser.
 
 -- |Match input types against what Freedom allows, and expand ...rest
 -- arguments into 'optRestArgCount' args.
-generateJSONMethodArgs :: Options -> [Parameter] -> [String]
-generateJSONMethodArgs opts params =
+generateJSONMethodArgs :: Options -> Method -> [String]
+generateJSONMethodArgs opts meth =
     let translateType :: Type -> String
-        translateType t@(Predefined (NumberType)) = typeName t
-        translateType t@(Predefined (BooleanType)) = typeName t
-        translateType t@(Predefined (StringType)) = typeName t
-        translateType (TypeReference (TypeRef (TypeName _ "Blob") Nothing)) = "blob"
-        translateType (TypeReference (TypeRef (TypeName _ "ArrayBuffer") Nothing)) = "buffer"
-        translateType _ = "object"
+        translateType Type { typeName = name } =
+          let xlate = [("ArrayBuffer", "buffer"), ("Blob", "blob")] ++ 
+                      [ (n, n) | n <- ["number", "string", "boolean", "object"]]
+          in fromMaybe "object" (lookup name xlate) 
         -- ^ We should try to catch as many bad inputs in the Analyzer.  It's too late here, 
         -- we've already committed to generation by this point.
-        isRest (RestParameter _ _) = True
-        isRest _ = False
-        lastArgIsRest = (length params > 0) && (isRest $ last params)
-        defaultType = (Predefined (StringType))
-        getArgTypes dfl ts = map (\a -> maybe dfl id (getParamType a)) ts
-        argList = if lastArgIsRest
-                  then let totalArgs = max (optRestArgCount opts) (length params)
-                           restArgType = maybe defaultType id $ getParamType $ last params
-                           realArgTypes = getArgTypes restArgType params
+        argList = if isJust $ methodRest meth
+                  then let totalArgs = max (optRestArgCount opts) 1 + (length $ methodParams meth)
+                           (_, restArgType) = fromJust $ methodRest meth
+                           realArgTypes = map snd $ methodParams meth
                            syntheticArgs = repeat restArgType
                        in take totalArgs $ realArgTypes ++ syntheticArgs
-                  else let defaultType = (Predefined (StringType))
-                       in getArgTypes defaultType params
+                  else map snd $ methodParams meth
     in map translateType argList
 
-generateJSONMethod :: Options -> String -> ParameterListAndReturnType -> (T.Text, FreedomAPIEntry)
-generateJSONMethod opts nm (ParameterListAndReturnType _ params ret) =
-    let paramTypes = generateJSONMethodArgs opts params
+generateJSONMethod :: Options -> Method -> (T.Text, FreedomAPIEntry)
+generateJSONMethod opts meth =
+    let paramTypes = generateJSONMethodArgs opts meth
+        ret = methodReturn meth
         retType = if isJust ret then [typeName . fromJust . stripPromise $ ret] else []
-    in (T.pack nm, ApiEntry { apiType = "method", 
-                              apiValue = map T.pack paramTypes, 
-                              apiRet = map T.pack retType })
+    in (T.pack (methodName meth), ApiEntry { apiType = "method", 
+                                             apiValue = map T.pack paramTypes, 
+                                             apiRet = map T.pack retType })
 
-generateJSONApis :: Options -> DeclarationElement -> (T.Text, [(T.Text, FreedomAPIEntry)])
-generateJSONApis opts (InterfaceDeclaration _ _ iface@(Interface _ name _ _ body)) =
-    let (TypeBody bodymems) = body
-        makeEntry (_,(MethodSignature nm _ params)) = Just $ generateJSONMethod opts nm params
-        makeEntry _ = Nothing
-    in (T.pack name, mapMaybe makeEntry bodymems)
+generateJSONApis :: Options -> Class -> (T.Text, [(T.Text, FreedomAPIEntry)])
+generateJSONApis opts cls =
+  (T.pack $ className cls, map (generateJSONMethod opts) $ classMethods cls)
 
-generateJSONApi :: Options -> [DeclarationElement] -> FreedomAPI
+generateJSONApi :: Options -> [Class] -> FreedomAPI
 generateJSONApi opts decls =
-    let processDecl decl = 
-            let iface = exportedInterfaceName decl
-            in if isJust iface
-               then Just $ generateJSONApis opts decl
-               else Nothing
-        apis = mapMaybe processDecl decls
+  let apis = map (generateJSONApis opts) $ filter classExported decls
     in Api { entries = apis }
 \end{code}
 % $
@@ -343,9 +296,9 @@ if it exists, or a simple empty one derived from the declarations.
 
 \begin{code}
 -- |A unique generation function that can merge a prior definition into the current one.
-generateJson :: Options -> FilePath -> Bool -> [DeclarationElement] -> IO ()
+generateJson :: Options -> FilePath -> Bool -> [Class] -> IO ()
 generateJson opts path merge decls = do
-  let firstIface = head $ mapMaybe exportedInterfaceName decls
+  let firstIface = className $ head $ filter classExported decls
       moduleName = hyphenSeparateHumps firstIface
       dflSkeleton = Manifest 
                     { name = T.pack moduleName
@@ -379,18 +332,16 @@ generateJson opts path merge decls = do
 \subsection{Driver}
 \begin{code}
 -- |Primary driver for generating typescript code.
-generateTS :: Options -> FilePath -> [DeclarationElement] -> IO ()
+generateTS :: Options -> FilePath -> [Class] -> IO ()
 generateTS options sourceDir decls = do
   let ipc = optIPC options
-      exportedInterfaces = mapMaybe exportedInterfaceName decls
+      exportedInterfaces = filter classExported decls
       prefix = [nl, nl, '>', ' ']                          
       print s = putStrLn (prefix ++ s)
   if length exportedInterfaces > 0
-  then do let generatedFilenameBase = sourceDir </> (head exportedInterfaces)
+  then do let generatedFilenameBase = sourceDir </> className (head exportedInterfaces)
           print $ "Parsed input AST: " ++ (
                    intercalate (nl : "    ") $ map show decls)
-          print $ "Parsed input: " ++ (
-                   intercalate [nl] $ map (\d -> renderDeclarationSourceFile [d]) decls)
           case ipc of
             FreedomMessaging ->  do 
                      print $ "Outputting to files " ++ generatedFilenameBase ++ "_(stub|skel).ts"

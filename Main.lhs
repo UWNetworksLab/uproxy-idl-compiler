@@ -118,11 +118,14 @@ main = do
     -- TODO(lally): consider using the -i processing path in options
     -- for each input, threading new Options between each input to mutate
     -- optPrefix.
+    putStrLn $ show nonOptions
+    putStrLn $ show programText
     let nonOptionSources = map (\f -> do readFile f) nonOptions
         inputSources = if length programText > 0
                        then (return programText) : nonOptionSources
                        else nonOptionSources
     -- and run them all through processInput.
+    putStrLn "Running over input sources."
     mapM_ (\s -> do text <- s; processInput text opts) inputSources
 \end{code}
 % $
@@ -132,8 +135,10 @@ separate \ident{processInput} function.
 
 \begin{code}
 processInput programText opts = do
-    decls <- parseDeclarations (optPrefix opts) programText
-    let analysis = analyzeDeclarations decls
+    (warnings, decls) <- parseDeclarations opts "input" programText
+    putStrLn $ unlines $ warnings
+    let analysis = analyzeDeclarations opts decls
+    putStrLn "Finished analysis."
     if isLeft analysis
       then do putStrLn ("ERROR " ++ fromLeft analysis)
               putStrLn "Exiting from errors."

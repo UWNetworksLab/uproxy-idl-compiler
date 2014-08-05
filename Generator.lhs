@@ -31,7 +31,7 @@ supportedConfiguration Typescript FreedomMessaging = True
 supportedConfiguration Typescript FreedomJSON = True
 supportedConfiguration _ _ = False
 
-generateText :: Options -> FilePath -> [Parser.DeclarationElement] -> IO ()
+generateText :: Options -> FilePath -> [Class] -> IO ()
 generateText options source decls = do
   let lang = optLanguage options
       ipc = optIPC options
