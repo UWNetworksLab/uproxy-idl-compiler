@@ -11,7 +11,8 @@ It's also a good place for warnings about style or API misuse.
 
 \begin{code}
 module Analyzer (analyzeDeclarations) where
-import Control.Monad.Except
+-- Change to Control.Monad.Except for later versions of mtl.
+import Control.Monad.Error
 import Data.Either
 import Data.List (intercalate)
 import Data.Maybe
@@ -105,7 +106,7 @@ declarationsExport opts input@(warnings, decls) =
 
 The driver function determines which validation checks to try, and then 
 runs them.  It uses the \textit{Either} monad defined in 
-\textit{Control.Monad.Except}.  The first function that returns 
+\textit{Control.Monad.Error}.  The first function that returns 
 \textit{Left} will end the analysis and return that alone.  The string 
 attached to the Left will be an error message.
 
