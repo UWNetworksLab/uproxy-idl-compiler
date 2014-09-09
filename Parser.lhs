@@ -1,5 +1,5 @@
 % Local Variables:
-% mode: latex 
+% mode: latex
 % mmm-classes: literate-haskell-latex
 % End:
 
@@ -21,12 +21,12 @@ import Options
 \end{code}
 
 \subsection{Intermediate Representation}
-The parser puts out an \emph{intermediate representation} that 
+The parser puts out an \emph{intermediate representation} that
 For now, we can keep with simple records.  If we need more abstract
-methods in analysis or generation, we can consider lenses.  It lets us decide 
-interpretation policy within the parser and semantic policy within the 
-analyzer.  Note that there's no symbol table or attempt to half-implement one 
--- types are names or parameterized names only, and we make no attempt to save 
+methods in analysis or generation, we can consider lenses.  It lets us decide
+interpretation policy within the parser and semantic policy within the
+analyzer.  Note that there's no symbol table or attempt to half-implement one
+-- types are names or parameterized names only, and we make no attempt to save
 their definition.  So far, that level of interpretation hasn't been necessary.
 
 \begin{code}
@@ -41,7 +41,7 @@ data Method = Method { methodName :: String
                      , methodReturn :: Maybe Type
                      } deriving (Eq, Show)
 
--- | Whether a type is marked as an interface or class.  Generally we'll refer 
+-- | Whether a type is marked as an interface or class.  Generally we'll refer
 -- to classes or interfaces identically as classes.  The difference only matters
 -- in parsing and code generation.
 data ClassTag = TagInterface | TagClass deriving (Eq, Show)
@@ -74,12 +74,12 @@ convertType (T.Predefined (T.NumberType)) = Just $ simpleType "number"
 convertType (T.Predefined (T.BooleanType)) = Just $ simpleType "boolean"
 convertType (T.Predefined (T.StringType)) = Just $ simpleType "string"
 convertType (T.Predefined (T.VoidType)) = Nothing
-convertType (T.TypeReference (T.TypeRef (T.TypeName _ nm) Nothing)) = 
+convertType (T.TypeReference (T.TypeRef (T.TypeName _ nm) Nothing)) =
   Just $ simpleType nm
-convertType (T.TypeReference (T.TypeRef (T.TypeName _ nm) (Just xs))) = 
+convertType (T.TypeReference (T.TypeRef (T.TypeName _ nm) (Just xs))) =
   Just $ (simpleType nm) { typeArgs = mapMaybe convertType xs }
 convertType (T.ObjectType ty) = Just $ simpleType "object"
-convertType (T.ArrayType ty) = 
+convertType (T.ArrayType ty) =
   Just $ (simpleType "Array") { typeArgs = maybe [] list (convertType ty) }
 convertType (T.FunctionType _ _ _) = Nothing
 convertType (T.ConstructorType _ _ _) = Nothing
@@ -89,11 +89,11 @@ convertMaybeType mty = maybe Nothing convertType mty
 
 convertSignature :: Options -> T.TypeMember -> Maybe Method
 convertSignature opts (T.MethodSignature name _ (
-                          T.ParameterListAndReturnType _ params rettype)) = 
+                          T.ParameterListAndReturnType _ params rettype)) =
   let isRest (T.RestParameter _ _) = True
       isRest _ = False
       defaultType = simpleType "string"
-      paramType (T.RequiredOrOptionalParameter _ name _ ty) = 
+      paramType (T.RequiredOrOptionalParameter _ name _ ty) =
         (name, fromMaybe defaultType $ convertMaybeType ty)
       paramType (T.RestParameter name ty) =
         (name, fromMaybe defaultType $ convertMaybeType ty)
@@ -108,7 +108,7 @@ convertSignature opts (T.MethodSignature name _ (
 
 convertSignature opts _ = Nothing
 
--- |TypeParameters are template args (in C++ parlance) and the typerefs are 
+-- |TypeParameters are template args (in C++ parlance) and the typerefs are
 -- implemented/extended interfaces
 convertInterface opts exported (T.Interface _ nm mparams mrefs (T.TypeBody memlist)) =
   let params = pullList mparams
@@ -124,7 +124,7 @@ convertInterface opts exported (T.Interface _ nm mparams mrefs (T.TypeBody memli
            , classTag = TagInterface }
 
 convertDecl :: Options -> T.DeclarationElement -> Maybe ([String], Class)
-convertDecl opts (T.InterfaceDeclaration _  exported iface) = 
+convertDecl opts (T.InterfaceDeclaration _  exported iface) =
   Just ([], convertInterface opts (isJust exported) iface)
 convertDecl _ (T.ImportDeclaration _ _ _) = Nothing
 convertDecl _ (T.ExportDeclaration _) = Nothing

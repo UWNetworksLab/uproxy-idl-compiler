@@ -1,5 +1,5 @@
 % Local Variables:
-% mode: latex 
+% mode: latex
 % mmm-classes: literate-haskell-latex
 % End:
 
@@ -17,7 +17,7 @@ import System.IO
 
 import Options
 import Parser
-import Generate.Types 
+import Generate.Types
 import Generate.Typescript
 \end{code}
 

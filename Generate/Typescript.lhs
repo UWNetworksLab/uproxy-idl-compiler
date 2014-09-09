@@ -95,7 +95,7 @@ maybeType ty = if isJust ty
 -- |Returns an inner type if the outer type is a Promise<inner>, otherwise it
 -- returns arg.
 stripPromise :: Maybe Type -> Maybe Type
-stripPromise (Just ty@(Type { typeName = "Promise"})) = Just $ head $ typeArgs ty
+stripPromise (Just ty@(Type { typeName = "Promise", typeArgs = (x:xs)})) = Just x -- Just $ head $ typeArgs ty
 stripPromise other = other
 
 -- |Print the return type, or nothing at all.
@@ -133,7 +133,7 @@ generateInterfaceIPCCall ipc depth method params =
       FreedomMessaging ->
         let message = "\"" ++ hyphenSeparateHumps method ++ "\""
             callBody = intercalate ", " $ message : map fst params
-        in "freedom.send(" ++ callBody ++ ");"
+        in "return freedom.send(" ++ callBody ++ ");"
       -- only IPC mechanism supported.  Add others here.
 
 -- |Generate typescript for an interface's body. Pass 'Nothing' for
@@ -172,7 +172,7 @@ generateInterface ipc depth decl =
                 ("stubname", className decl),
                 ("body", indentText depth bodyText)] template
           in render filledTemplate
-     else "// " ++ (className decl) ++ " is not exported."
+  else "// " ++ (className decl) ++ " is not exported."
 \end{code}
 % $
 \subsection{JSON Generation}
@@ -274,7 +274,8 @@ generateJSONMethodArgs opts meth =
                            syntheticArgs = repeat restArgType
                        in take totalArgs $ realArgTypes ++ syntheticArgs
                   else map snd $ methodParams meth
-    in map translateType argList
+        translatedArgs = map translateType argList
+    in translatedArgs
 
 generateJSONMethod :: Options -> Method -> (T.Text, FreedomAPIEntry)
 generateJSONMethod opts meth =
@@ -292,7 +293,7 @@ generateJSONApis opts cls =
 generateJSONApi :: Options -> [Class] -> FreedomAPI
 generateJSONApi opts decls =
   let apis = map (generateJSONApis opts) $ filter classExported decls
-    in Api { entries = apis }
+  in Api { entries = apis }
 \end{code}
 % $
 
@@ -322,9 +323,8 @@ generateJson opts path merge decls = do
                   hPutStrLn stderr $ "Reading manifest from " ++ path
                   let parsed = decode $ C8.pack contents
                   if isJust parsed
-                  then return $ fromJust parsed
-                  else do fail $ path ++ ": failed to parse.  " ++
-                                        "Aborting instead of clobbering."
+                    then return $ fromJust parsed
+                    else do fail $ path ++ ": failed to parse.  " ++ "Aborting instead of clobbering."
           else return dflSkeleton
   let result = skel { api = generateJSONApi opts decls }
       manifestKeyOrder = ["name", "description", "app", "constraints",
@@ -346,21 +346,24 @@ generateTS options sourceDir decls = do
       prefix = [nl, nl, '>', ' ']
       print s = putStrLn (prefix ++ s)
   if length exportedInterfaces > 0
-  then do let generatedFilenameBase = sourceDir </> className (head exportedInterfaces)
-          print $ "Parsed input AST: " ++ (
-                   intercalate (nl : "    ") $ map show decls)
-          case ipc of
-            FreedomMessaging ->  do
-                     print $ "Outputting to files " ++ generatedFilenameBase ++ "_(stub|skel).ts"
-                     let stubText = concatMap (generateInterface (Just ipc) 1) decls
-                         skelText = concatMap (generateInterface Nothing 1) decls
-                     writeFile (generatedFilenameBase ++ "_stub.ts") stubText
-                     writeFile (generatedFilenameBase ++ "_skel.ts") skelText
-            FreedomJSON -> do
-                     print $ "Output to files " ++ generatedFilenameBase ++ "_stub.ts and " ++
-                           generatedFilenameBase ++ ".json."
-                     let skelText = concatMap (generateInterface Nothing 1) decls
-                     generateJson options (generatedFilenameBase ++ ".json") False decls
-                     writeFile (generatedFilenameBase ++ "_skel.ts") skelText
-  else hPutStrLn stderr "> Failure.  No exported interfaces."
+    then do let generatedFilenameBase = sourceDir </> className (head exportedInterfaces)
+            if optVerbose options > 1
+              then do print $ "Parsed input AST: " ++ (
+                         intercalate (nl : "    ") $ map show decls)
+                      return ()
+              else return ()
+            case ipc of
+              FreedomMessaging ->  do
+                       print $ "Outputting to files " ++ generatedFilenameBase ++ "_(stub|skel).ts"
+                       let stubText = concatMap (generateInterface (Just ipc) 1) decls
+                           skelText = concatMap (generateInterface Nothing 1) decls
+                       writeFile (generatedFilenameBase ++ "_stub.ts") stubText
+                       writeFile (generatedFilenameBase ++ "_skel.ts") skelText
+              FreedomJSON -> do
+                       print $ "Output to files " ++ generatedFilenameBase ++ "_skel.ts and " ++
+                             generatedFilenameBase ++ ".json."
+                       let skelText = concatMap (generateInterface Nothing 1) decls
+                       generateJson options (generatedFilenameBase ++ ".json") False decls
+                       writeFile (generatedFilenameBase ++ "_skel.ts") skelText
+    else hPutStrLn stderr "> Failure.  No exported interfaces."
 \end{code}

@@ -14,6 +14,8 @@ The primary options are:
 \item \texttt{optRestArgCount} --- when passing \emph{...rest} to an
   API, how many arguments to present to IPC mechanisms that can't
   handle variable numbers of arguments.  Defaults to 10.
+\item \texttt{optVerbose} --- verbosity of output.  Default is 1, with
+  higher numbers being more verbose.  0 is the 'STFU' option.
 \end{enumerate}
 
 \begin{code}
@@ -29,12 +31,13 @@ import Data.Either.Unwrap
 import Generate.Types as T
 
 data Options = Options { optLanguage :: T.Language
-                       , optIPC :: T.IPCMechanism  
+                       , optIPC :: T.IPCMechanism
                        , optInput :: IO String
                        , optPrefix :: String
                        , optOutputDir :: IO FilePath
-                       , optMakeOutputDir :: Bool 
+                       , optMakeOutputDir :: Bool
                        , optRestArgCount :: Int
+                       , optVerbose :: Int
                        }
 
 startOptions = Options { optLanguage = T.Typescript
@@ -43,7 +46,9 @@ startOptions = Options { optLanguage = T.Typescript
                        , optPrefix = "input"
                        , optOutputDir = getCurrentDirectory
                        , optMakeOutputDir = False
-                       , optRestArgCount = 10 }
+                       , optRestArgCount = 10
+                       , optVerbose = 1
+                       }
 
 options :: [ OptDescr (Options -> IO Options) ]
 options =
@@ -54,13 +59,13 @@ options =
                             return $ opt { optInput = readFile arg, optPrefix = prefix })
             "FILE")
         "Input file, also setting the prefix to its directory."
- 
+
     , Option "d" ["outputdir"]
         (ReqArg
             (\arg opt -> return opt { optOutputDir = (return arg) })
             "DIR")
         "Output directory"
- 
+
     , Option "l" ["language"]
         (ReqArg
             (\arg opt -> do let lang = parseLang arg
@@ -70,7 +75,7 @@ options =
                                       exitWith $ ExitFailure 1)
             "LANG")
         "Enable verbose messages"
-      
+
     , Option "c" ["ipc"]
         (ReqArg
             (\arg opt -> do let ipc = parseIPC arg
@@ -83,22 +88,30 @@ options =
 
     , Option "p" ["prefix"]
         (ReqArg
-            (\arg opt -> return opt { optPrefix = arg }) 
+            (\arg opt -> return opt { optPrefix = arg })
             "PREFIX")
         "Prefix for generated files."
- 
+
     , Option "V" ["version"]
         (NoArg
             (\_ -> do hPutStrLn stderr "Version 0.01"
                       exitWith ExitSuccess))
         "Print version"
- 
+
+    , Option "v" ["verbose"]
+        (OptArg (\n opt ->
+                  case n of
+                    Just s -> return opt { optVerbose = (read s) :: Int }
+                    Nothing -> return opt { optVerbose = 2 })
+         "Verbosity")
+        "Output verbosity"
+
     , Option "h" ["help"]
         (NoArg
             (\_ -> do prg <- getProgName
                       hPutStrLn stderr (usageInfo prg options)
                       exitWith ExitSuccess))
-        "Show help" 
+        "Show help"
 
     , Option "r" ["restargs"]
         (ReqArg
