@@ -1,5 +1,5 @@
 \lstset{firstnumber=1}
-\subsection{Options and Parsing}\label{Options}
+\subsection{Options}\label{Options}
 The configuration for the driver is via
 \link{http://www.haskell.org/haskellwiki/High-level\_option\_handling\_with\_GetOpt}{\texttt{GetOpt}}.
 The primary options are:

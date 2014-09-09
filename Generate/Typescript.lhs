@@ -1,5 +1,5 @@
 % Local Variables:
-% mode: latex 
+% mode: latex
 % mmm-classes: literate-haskell-latex
 % End:
 
@@ -76,16 +76,23 @@ rest.
 
 \begin{code}
 -- Printers for different parts of the input grammar.  By "Print", we
--- mean return a printable string value.  Some accessors also exist, that 
+-- mean return a printable string value.  Some accessors also exist, that
 -- return another type.  They have verb prefixes.
 
--- |Many Types are optional.  Default to 'any' if they're not present. 
+-- |Type with arguments
+fullTypeName :: Type -> String
+fullTypeName (Type { typeName = tyn, typeArgs = args }) =
+  if length args > 0
+  then tyn ++ "<" ++ (concat $ intersperse ", " $ map fullTypeName args) ++ ">"
+  else tyn
+
+-- |Many Types are optional.  Default to 'any' if they're not present.
 maybeType :: Maybe Type -> String
-maybeType ty = if isJust ty 
-                    then typeName $ fromJust ty
+maybeType ty = if isJust ty
+                    then fullTypeName $ fromJust ty
                     else "any"
 
--- |Returns an inner type if the outer type is a Promise<inner>, otherwise it 
+-- |Returns an inner type if the outer type is a Promise<inner>, otherwise it
 -- returns arg.
 stripPromise :: Maybe Type -> Maybe Type
 stripPromise (Just ty@(Type { typeName = "Promise"})) = Just $ head $ typeArgs ty
@@ -93,7 +100,7 @@ stripPromise other = other
 
 -- |Print the return type, or nothing at all.
 returnType :: Maybe Type -> String
-returnType ret = if isJust ret then typeName (fromJust ret) else ""
+returnType ret = if isJust ret then fullTypeName (fromJust ret) else ""
 
 -- |Print the name of an interface name, if it's exported.  Otherwise Nothing.
 exportedInterfaceName :: Class -> Maybe String
@@ -103,10 +110,10 @@ exportedInterfaceName cls = if classExported cls
 
 printType :: Type -> String
 printType ty = if null $ typeArgs ty
-               then typeName ty
-               else (typeName ty) ++ "<" ++ (intercalate "," $ map printType $ typeArgs ty) ++ ">"
+               then fullTypeName ty
+               else (fullTypeName ty) ++ "<" ++ (intercalate "," $ map printType $ typeArgs ty) ++ ">"
 \end{code}
-% 
+%
 
 \subsection{Typescript Code Generation}
 For \ident{FreedomMessaging}, we generate Typescript twice: first for
@@ -133,13 +140,13 @@ generateInterfaceIPCCall ipc depth method params =
 -- the IPC type if the body should be an empty skeleton.
 generateInterfaceBody :: Maybe IPCMechanism -> Int -> Class -> String
 generateInterfaceBody ipc depth cls =
-  let generateInterfaceBody' meth = 
+  let generateInterfaceBody' meth =
         let nm = methodName meth
             templateText = unlines [
                             "$signature$ {",
                             indentString ++ "$invocation$",
                             "}" ]
-            signatureReturn = maybe "" typeName (methodReturn meth)
+            signatureReturn = maybe "" fullTypeName (methodReturn meth)
             template = newSTMP templateText :: StringTemplate String
             params = methodParams meth
         in render $ setManyAttrib [
@@ -147,7 +154,7 @@ generateInterfaceBody ipc depth cls =
                         (concat $ intersperse ", " $ map fst params) ++ ")" ++
                         (if length signatureReturn > 0
                          then ": " ++ signatureReturn ++ " " else "")),
-          ("invocation", if isJust ipc 
+          ("invocation", if isJust ipc
                            then generateInterfaceIPCCall (fromJust ipc) depth nm params
                            else "// write your implementation of " ++ nm ++ " here")] template
   in indentText depth $ intercalate [nl] $ map generateInterfaceBody' $ classMethods cls
@@ -158,20 +165,20 @@ generateInterface ipc depth decl =
   if classExported decl
   then let templateText = unlines [ "interface $stubname$ {",
                                     "$body$",
-                                    "}" ]
+                                    "}\n" ]
            bodyText = generateInterfaceBody ipc (depth+1) decl
            template = newSTMP templateText :: StringTemplate String
            filledTemplate = setManyAttrib [
                 ("stubname", className decl),
                 ("body", indentText depth bodyText)] template
           in render filledTemplate
-     else ""  -- ignore unexported interfaces.
+     else "// " ++ (className decl) ++ " is not exported."
 \end{code}
 % $
 \subsection{JSON Generation}
 As we're using the Typescript generator for our skeleton
 implementation, we only have the JSON to generate separately for
-\ident{FreedomJSON}.  
+\ident{FreedomJSON}.
 
 \paragraph{\ident{Text} vs \ident{String}}
 The parser library uses \ident{String}, which is perfectly reasonable.
@@ -195,14 +202,14 @@ have to customize it for \ident{FreedomAPI} and
 \begin{code}
 data FreedomApp = App { script :: T.Text } deriving (Show, Eq)
 data FreedomConstraints = Constraints { isolation :: T.Text } deriving (Show, Eq)
-data FreedomAPIEntry = ApiEntry 
+data FreedomAPIEntry = ApiEntry
     { apiType :: T.Text
     , apiValue :: [T.Text]
-    , apiRet :: [T.Text] 
+    , apiRet :: [T.Text]
     } deriving (Show, Eq)
 
 data FreedomAPI = Api { entries :: [(T.Text, [(T.Text, FreedomAPIEntry)])] } deriving (Show, Eq)
-data FreedomManifest = Manifest 
+data FreedomManifest = Manifest
     { name :: T.Text
     , description :: T.Text
     , app :: FreedomApp
@@ -215,15 +222,15 @@ data FreedomManifest = Manifest
 
 $(TH.deriveJSON TH.defaultOptions ''FreedomApp)
 $(TH.deriveJSON TH.defaultOptions ''FreedomConstraints)
-$(TH.deriveJSON TH.defaultOptions { TH.fieldLabelModifier = 
+$(TH.deriveJSON TH.defaultOptions { TH.fieldLabelModifier =
                                      \f -> map toLower $ drop 3 f }
                                    ''FreedomAPIEntry)
 $(TH.deriveJSON TH.defaultOptions ''FreedomManifest)
 
 -- |FreedomAPI uses custom keys, so do this by hand.
 instance FromJSON FreedomAPI where
-    parseJSON (Object v) = 
-        let readEntry (k, obj) = 
+    parseJSON (Object v) =
+        let readEntry (k, obj) =
                 let parsed = fromJSON obj
                     interpret (Error _) = []
                     interpret (Success s) = s
@@ -236,7 +243,7 @@ instance ToJSON FreedomAPI where
     toJSON api = let serializeMember (mem, body) = (mem, toJSON body)
                      serializeAPI (api, mems) = (api, object $ map serializeMember mems)
                  in object $ map serializeAPI $ entries api
-                                                                    
+
 \end{code}
 % $
 
@@ -255,10 +262,10 @@ generateJSONMethodArgs :: Options -> Method -> [String]
 generateJSONMethodArgs opts meth =
     let translateType :: Type -> String
         translateType Type { typeName = name } =
-          let xlate = [("ArrayBuffer", "buffer"), ("Blob", "blob")] ++ 
+          let xlate = [("ArrayBuffer", "buffer"), ("Blob", "blob")] ++
                       [ (n, n) | n <- ["number", "string", "boolean", "object"]]
-          in fromMaybe "object" (lookup name xlate) 
-        -- ^ We should try to catch as many bad inputs in the Analyzer.  It's too late here, 
+          in fromMaybe "object" (lookup name xlate)
+        -- ^ We should try to catch as many bad inputs in the Analyzer.  It's too late here,
         -- we've already committed to generation by this point.
         argList = if isJust $ methodRest meth
                   then let totalArgs = max (optRestArgCount opts) 1 + (length $ methodParams meth)
@@ -273,9 +280,9 @@ generateJSONMethod :: Options -> Method -> (T.Text, FreedomAPIEntry)
 generateJSONMethod opts meth =
     let paramTypes = generateJSONMethodArgs opts meth
         ret = methodReturn meth
-        retType = if isJust ret then [typeName . fromJust . stripPromise $ ret] else []
-    in (T.pack (methodName meth), ApiEntry { apiType = "method", 
-                                             apiValue = map T.pack paramTypes, 
+        retType = if isJust ret then [fullTypeName . fromJust . stripPromise $ ret] else []
+    in (T.pack (methodName meth), ApiEntry { apiType = "method",
+                                             apiValue = map T.pack paramTypes,
                                              apiRet = map T.pack retType })
 
 generateJSONApis :: Options -> Class -> (T.Text, [(T.Text, FreedomAPIEntry)])
@@ -290,7 +297,7 @@ generateJSONApi opts decls =
 % $
 
 \paragraph{JSON Driver}
-The driver starts by building a default instance of \ident{FreedomManifest} 
+The driver starts by building a default instance of \ident{FreedomManifest}
 and then fills in the methods.  The default instance can be read from the file
 if it exists, or a simple empty one derived from the declarations.
 
@@ -300,7 +307,7 @@ generateJson :: Options -> FilePath -> Bool -> [Class] -> IO ()
 generateJson opts path merge decls = do
   let firstIface = className $ head $ filter classExported decls
       moduleName = hyphenSeparateHumps firstIface
-      dflSkeleton = Manifest 
+      dflSkeleton = Manifest
                     { name = T.pack moduleName
                     , description = T.pack ""
                     , app = App { script = T.pack $ moduleName ++ ".js" }
@@ -316,15 +323,15 @@ generateJson opts path merge decls = do
                   let parsed = decode $ C8.pack contents
                   if isJust parsed
                   then return $ fromJust parsed
-                  else do fail $ path ++ ": failed to parse.  " ++ 
+                  else do fail $ path ++ ": failed to parse.  " ++
                                         "Aborting instead of clobbering."
           else return dflSkeleton
   let result = skel { api = generateJSONApi opts decls }
-      manifestKeyOrder = ["name", "description", "app", "constraints", 
-                          "provides", "api", "dependencies", "permissions", 
+      manifestKeyOrder = ["name", "description", "app", "constraints",
+                          "provides", "api", "dependencies", "permissions",
                           "type", "value", "ret"]
-      config = Config { confIndent = 4, 
-                        confCompare = keyOrder manifestKeyOrder `mappend` 
+      config = Config { confIndent = 4,
+                        confCompare = keyOrder manifestKeyOrder `mappend`
                                        comparing T.length }
   BL.writeFile path $ encodePretty' config result
 \end{code}
@@ -336,14 +343,14 @@ generateTS :: Options -> FilePath -> [Class] -> IO ()
 generateTS options sourceDir decls = do
   let ipc = optIPC options
       exportedInterfaces = filter classExported decls
-      prefix = [nl, nl, '>', ' ']                          
+      prefix = [nl, nl, '>', ' ']
       print s = putStrLn (prefix ++ s)
   if length exportedInterfaces > 0
   then do let generatedFilenameBase = sourceDir </> className (head exportedInterfaces)
           print $ "Parsed input AST: " ++ (
                    intercalate (nl : "    ") $ map show decls)
           case ipc of
-            FreedomMessaging ->  do 
+            FreedomMessaging ->  do
                      print $ "Outputting to files " ++ generatedFilenameBase ++ "_(stub|skel).ts"
                      let stubText = concatMap (generateInterface (Just ipc) 1) decls
                          skelText = concatMap (generateInterface Nothing 1) decls
@@ -357,5 +364,3 @@ generateTS options sourceDir decls = do
                      writeFile (generatedFilenameBase ++ "_skel.ts") skelText
   else hPutStrLn stderr "> Failure.  No exported interfaces."
 \end{code}
-
-

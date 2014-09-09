@@ -7,8 +7,6 @@
 The parser uses the existing \emph{language-typescript} package and
 then converts this input into its own data structures.
 
-For now, we can keep with simple records.  If we need more abstract
-methods in analysis or generation, we can consider lenses.
 \lstset{firstnumber=1}
 \begin{code}
 module Parser (parseDeclarations, Type(..), Method(..), Class(..)) where
@@ -20,6 +18,18 @@ import Data.Maybe (fromMaybe, mapMaybe, isJust)
 import qualified Language.TypeScript.Types as T
 
 import Options
+\end{code}
+
+\subsection{Intermediate Representation}
+The parser puts out an \emph{intermediate representation} that 
+For now, we can keep with simple records.  If we need more abstract
+methods in analysis or generation, we can consider lenses.  It lets us decide 
+interpretation policy within the parser and semantic policy within the 
+analyzer.  Note that there's no symbol table or attempt to half-implement one 
+-- types are names or parameterized names only, and we make no attempt to save 
+their definition.  So far, that level of interpretation hasn't been necessary.
+
+\begin{code}
 
 data Type = Type { typeName :: String
                  , typeArgs :: [Type]

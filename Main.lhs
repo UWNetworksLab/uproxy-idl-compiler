@@ -1,4 +1,4 @@
-%  USE XETEX TO MAKE THIS DOCUMENT
+% USE xelatex TO MAKE THIS DOCUMENT
 
 % Local Variables:
 % mode: latex 
@@ -152,7 +152,7 @@ processInput programText opts = do
 \end{code}
 
 \input{Options.lhs}
-
+\input{Parser.lhs}
 \input{Analyzer.lhs}
 \input{Generator.lhs}
 \end{document}
