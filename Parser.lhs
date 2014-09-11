@@ -125,26 +125,27 @@ convertInterface opts exported (T.Interface _ nm mparams mrefs (T.TypeBody memli
            , classTag = TagInterface }
 
 -- |Ambient declarations include classes, which we implicitly mark for exporting.
-convertClass opts (T.AmbientDeclaration _ _ (AmbientClassDeclaration _ nm _ _ commentsAndElems)) =
+-- Note that this returns a Maybe ([String], Class), unlike convertInterface above.
+convertClass opts (T.AmbientDeclaration _ _ (T.AmbientClassDeclaration _ nm _ _ _ commentsAndElems)) =
   let elems = map snd commentsAndElems
-      isCtor (AmbientConstructorDeclaration _) = True
+      isCtor (T.AmbientConstructorDeclaration _) = True
       isCtor _ = False
-      isMemberDecl (AmbientMemberDeclaration _ _ _ _) = True
-      isMemberDecl = False
+      isMemberDecl (T.AmbientMemberDeclaration _ _ _ _) = True
+      isMemberDecl _ = False
       ctors = filter isCtor elems
       members = filter isMemberDecl elems
       ctorWarning = if length ctors > 1
                       then ["Too many constructors"]
                       else []
-      convertMember (AmbientMemberDeclaration _ _ nm (Right (ParameterListAndReturnType _ params rettype)) =
+      convertMember (T.AmbientMemberDeclaration _ _ nm (Right (T.ParameterListAndReturnType _ params rettype))) =
          let regularArgs = map paramType $ filter (not . isRest) params
              restArgs = pullMaybeHead $ map paramType $ filter isRest params
          in Method { methodName = nm
                    , methodParams = regularArgs
-                   , methodRest = restArg
+                   , methodRest = restArgs
                    , methodReturn = convertMaybeType rettype }
 
-      convertCtor (AmbientConstructorDeclaration params) =
+      convertCtor (T.AmbientConstructorDeclaration params) =
         let args = map paramType params
         in Method { methodName = "constructor"
                   , methodParams = args
@@ -165,7 +166,7 @@ convertDecl opts (T.InterfaceDeclaration _  exported iface) =
 convertDecl _ (T.ImportDeclaration _ _ _) = Nothing
 convertDecl _ (T.ExportDeclaration _) = Nothing
 convertDecl _ (T.ExternalImportDeclaration _ _ _) = Nothing
-convertDecl opts ambient@(T.AmbientDeclaration _ exported ambient) = convertClass opts ambient
+convertDecl opts ambient@(T.AmbientDeclaration _ exported amb) = convertClass opts ambient
 
 convertInput :: Options -> [T.DeclarationElement] -> ([String], [Class])
 convertInput opts decls = let conversions = mapMaybe (convertDecl opts) decls
