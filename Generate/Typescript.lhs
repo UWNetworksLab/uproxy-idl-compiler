@@ -138,8 +138,8 @@ generateInterfaceIPCCall ipc depth method params =
 
 -- |Generate typescript for an interface's body. Pass 'Nothing' for
 -- the IPC type if the body should be an empty skeleton.
-generateInterfaceBody :: Maybe IPCMechanism -> Int -> Class -> String
-generateInterfaceBody ipc depth cls =
+generateInterfaceBody :: Maybe IPCMechanism -> Int -> Class -> Bool -> String
+generateInterfaceBody ipc depth cls ctor =
   let generateInterfaceBody' meth =
         let nm = methodName meth
             templateText = unlines [
@@ -157,16 +157,20 @@ generateInterfaceBody ipc depth cls =
           ("invocation", if isJust ipc
                            then generateInterfaceIPCCall (fromJust ipc) depth nm params
                            else "// write your implementation of " ++ nm ++ " here")] template
-  in indentText depth $ intercalate [nl] $ map generateInterfaceBody' $ classMethods cls
+      clsCtor = classConstructor cls
+      allmethods = if (ctor && isJust clsCtor)
+                     then (classMethods cls ++ [fromJust clsCtor])
+                     else classMethods cls
+  in indentText depth $ intercalate [nl] $ map generateInterfaceBody' $ allmethods
 
 -- |Generate typescript for a class or interface.
-generateGeneric :: Maybe IPCMechanism -> Int -> String -> Class -> String
-generateGeneric ipc depth tag decl =
+generateGeneric :: Maybe IPCMechanism -> Int -> String -> Class -> Bool -> String
+generateGeneric ipc depth tag decl ctor =
   if classExported decl
   then let templateText = unlines [ "$tag$ $stubname$ {",
                                     "$body$",
                                     "}\n" ]
-           bodyText = generateInterfaceBody ipc (depth+1) decl
+           bodyText = generateInterfaceBody ipc (depth+1) decl ctor
            template = newSTMP templateText :: StringTemplate String
            filledTemplate = setManyAttrib [
                 ("tag", tag),
@@ -178,12 +182,12 @@ generateGeneric ipc depth tag decl =
 -- |Generate typescript for an interface declaration.
 generateInterface :: Maybe IPCMechanism -> Int -> Class -> String
 generateInterface ipc depth decl =
-  generateGeneric ipc depth "interface" decl
+  generateGeneric ipc depth "interface" decl False
 
 -- |Generate typescript for a skeleton declaration.
 generateSkeleton :: Int -> Class -> String
 generateSkeleton depth decl =
-  generateGeneric Nothing depth "class" decl
+  generateGeneric Nothing depth "class" decl True
 
 \end{code}
 % $
@@ -378,7 +382,7 @@ generateTS options sourceDir decls = do
               FreedomJSON -> do
                        print $ "Output to files " ++ generatedFilenameBase ++ "_skel.ts and " ++
                              generatedFilenameBase ++ ".json."
-                       let skelText = concatMap (generateInterface Nothing 1) decls
+                       let skelText = concatMap (generateSkeleton 1) decls
                        generateJson options (generatedFilenameBase ++ ".json") False decls
                        writeFile (generatedFilenameBase ++ "_skel.ts") skelText
     else hPutStrLn stderr "> Failure.  No exported interfaces."
