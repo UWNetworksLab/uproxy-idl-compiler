@@ -248,7 +248,11 @@ instance FromJSON FreedomAPI where
                     interpret (Success s) = s
                 in (k, interpret parsed) :: (T.Text, [FreedomAPIEntry])
             allEntries = map readEntry $ toList v
-        in mzero -- Api <$> (toList v <$> ZipList readEntry) -- FIXME
+            makeApi ents = Api { entries = ents }
+            readEntries [] = pure []
+            readEntries (x:xs) =
+              (:) <$> readEntry x <*> readEntries xs
+        in mzero -- makeApi <$> (readEntries <$> toList) -- FIXME
     parseJSON _ = mzero
 
 instance ToJSON FreedomAPI where

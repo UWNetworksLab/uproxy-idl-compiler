@@ -89,7 +89,7 @@ ambientClassBodyElement = (,) <$> commentPlaceholder <*> (choice $ map try
   , ambientMemberDeclaration
   , ambientIndexSignature ])
 
-ambientConstructorDeclaration = AmbientConstructorDeclaration <$> (reserved "constructor" *> parameterList <* semi)
+ambientConstructorDeclaration = AmbientConstructorDeclaration <$> (reserved "constructor" *> parens parameterList)
 
 ambientMemberDeclaration = AmbientMemberDeclaration <$> optionMaybe publicOrPrivate <*> optionMaybe static <*> propertyName <*> choice [fmap Right parameterListAndReturnType, fmap Left (optionMaybe typeAnnotation)]
 

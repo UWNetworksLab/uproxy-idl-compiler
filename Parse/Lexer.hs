@@ -53,7 +53,7 @@ typeScriptDef =	javaStyle
   , T.reservedNames = [
       "break", "do", "instanceof", "typeof", "case", "else", "new", "var", "catch", "finally", "return", "void", "continue", "for",
       "switch", "while", "debugger", "function", "this", "with", "default", "if", "throw", "delete", "in", "try", "class", "enum",
-      "extends", "super", "const", "export", "import", "implements", "let", "private", "public", "yield", "interface", "package",
+      "extends", "super", "const", "export", "import", "implements", "let", "private", "public", "yield", "interface", "package", "constructor",
       "protected", "static"
     ]
   , T.caseSensitive = True
