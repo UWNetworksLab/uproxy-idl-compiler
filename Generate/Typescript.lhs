@@ -159,20 +159,32 @@ generateInterfaceBody ipc depth cls =
                            else "// write your implementation of " ++ nm ++ " here")] template
   in indentText depth $ intercalate [nl] $ map generateInterfaceBody' $ classMethods cls
 
--- |Generate typescript for an interface declaration.
-generateInterface :: Maybe IPCMechanism -> Int -> Class -> String
-generateInterface ipc depth decl =
+-- |Generate typescript for a class or interface.
+generateGeneric :: Maybe IPCMechanism -> Int -> String -> Class -> String
+generateGeneric ipc depth tag decl =
   if classExported decl
-  then let templateText = unlines [ "interface $stubname$ {",
+  then let templateText = unlines [ "$tag$ $stubname$ {",
                                     "$body$",
                                     "}\n" ]
            bodyText = generateInterfaceBody ipc (depth+1) decl
            template = newSTMP templateText :: StringTemplate String
            filledTemplate = setManyAttrib [
+                ("tag", tag),
                 ("stubname", className decl),
                 ("body", indentText depth bodyText)] template
           in render filledTemplate
-  else "// " ++ (className decl) ++ " is not exported."
+  else "// " ++ (className decl) ++ " is not exported.\n"
+
+-- |Generate typescript for an interface declaration.
+generateInterface :: Maybe IPCMechanism -> Int -> Class -> String
+generateInterface ipc depth decl =
+  generateGeneric ipc depth "interface" decl
+
+-- |Generate typescript for a skeleton declaration.
+generateSkeleton :: Int -> Class -> String
+generateSkeleton depth decl =
+  generateGeneric Nothing depth "class" decl
+
 \end{code}
 % $
 \subsection{JSON Generation}
@@ -343,7 +355,7 @@ generateTS :: Options -> FilePath -> [Class] -> IO ()
 generateTS options sourceDir decls = do
   let ipc = optIPC options
       exportedInterfaces = filter classExported decls
-      prefix = [nl, nl, '>', ' ']
+      prefix = ['>', ' ']
       print s = putStrLn (prefix ++ s)
   if length exportedInterfaces > 0
     then do let generatedFilenameBase = sourceDir </> className (head exportedInterfaces)
@@ -356,7 +368,7 @@ generateTS options sourceDir decls = do
               FreedomMessaging ->  do
                        print $ "Outputting to files " ++ generatedFilenameBase ++ "_(stub|skel).ts"
                        let stubText = concatMap (generateInterface (Just ipc) 1) decls
-                           skelText = concatMap (generateInterface Nothing 1) decls
+                           skelText = concatMap (generateSkeleton 1) decls
                        writeFile (generatedFilenameBase ++ "_stub.ts") stubText
                        writeFile (generatedFilenameBase ++ "_skel.ts") skelText
               FreedomJSON -> do

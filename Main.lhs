@@ -154,7 +154,7 @@ processInput programText opts = do
       else do let (warnings, analyzedDecls) = fromRight analysis
               mapM_ (\w -> putStrLn ("WARNING " ++ (show w))) warnings
               dir <- optOutputDir opts
-              unit <- if (optMakeOutputDir opts) 
+              unit <- if (optMakeOutputDir opts)
                         then do createDirectoryIfMissing True dir
                         else return ()
               generateText opts dir decls
