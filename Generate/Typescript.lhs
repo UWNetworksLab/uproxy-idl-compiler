@@ -29,7 +29,8 @@ import qualified Data.ByteString.Lazy.Char8 as C8 (pack)
 import qualified Data.ByteString.Lazy as BL (readFile, writeFile, pack, unpack)
 import Data.Char
 import Data.Data (Typeable(..), Data(..))
-import Data.HashMap.Strict (toList)
+import Data.HashMap.Strict (toList, foldrWithKey)
+import qualified Data.Map as M
 import Data.List
 import Data.Maybe
 import Data.Monoid (mappend)
@@ -119,7 +120,7 @@ printType ty = if null $ typeArgs ty
 For \ident{FreedomMessaging}, we generate Typescript twice: first for
 the stub (which calls \ident{emit()}) and second for the skeleton.
 The latter time, we simply have an empty method body.
-\ident{generateInterfaceBody} takes a \ident{Maybe IPCMechanism} to
+\ident{generateBody} takes a \ident{Maybe IPCMechanism} to
 indicate whether there is an IPC mechanism to generate text for (in
 the stub case), or \ident{Nothing} to generate, for the skeletal
 case.
@@ -127,8 +128,8 @@ case.
 
 \begin{code}
 -- |Generate the IPC call of the generated method body.
-generateInterfaceIPCCall :: IPCMechanism -> Int -> String -> [(String, Type)] -> String
-generateInterfaceIPCCall ipc depth method params =
+generateIPCCall :: IPCMechanism -> Int -> String -> [(String, Type)] -> String
+generateIPCCall ipc depth method params =
     case ipc of
       FreedomMessaging ->
         let message = "\"" ++ hyphenSeparateHumps method ++ "\""
@@ -138,9 +139,9 @@ generateInterfaceIPCCall ipc depth method params =
 
 -- |Generate typescript for an interface's body. Pass 'Nothing' for
 -- the IPC type if the body should be an empty skeleton.
-generateInterfaceBody :: Maybe IPCMechanism -> Int -> Class -> Bool -> String
-generateInterfaceBody ipc depth cls ctor =
-  let generateInterfaceBody' meth =
+generateBody :: Maybe IPCMechanism -> Int -> Class -> Bool -> String
+generateBody ipc depth cls ctor =
+  let generateBody' meth =
         let nm = methodName meth
             templateText = unlines [
                             "$signature$ {",
@@ -155,13 +156,13 @@ generateInterfaceBody ipc depth cls ctor =
                         (if length signatureReturn > 0
                          then ": " ++ signatureReturn ++ " " else "")),
           ("invocation", if isJust ipc
-                           then generateInterfaceIPCCall (fromJust ipc) depth nm params
+                           then generateIPCCall (fromJust ipc) depth nm params
                            else "// write your implementation of " ++ nm ++ " here")] template
       clsCtor = classConstructor cls
       allmethods = if (ctor && isJust clsCtor)
                      then (classMethods cls ++ [fromJust clsCtor])
                      else classMethods cls
-  in indentText depth $ intercalate [nl] $ map generateInterfaceBody' $ allmethods
+  in indentText depth $ intercalate [nl] $ map generateBody' $ allmethods
 
 -- |Generate typescript for a class or interface.
 generateGeneric :: Maybe IPCMechanism -> Int -> String -> Class -> Bool -> String
@@ -170,7 +171,7 @@ generateGeneric ipc depth tag decl ctor =
   then let templateText = unlines [ "$tag$ $stubname$ {",
                                     "$body$",
                                     "}\n" ]
-           bodyText = generateInterfaceBody ipc (depth+1) decl ctor
+           bodyText = generateBody ipc (depth+1) decl ctor
            template = newSTMP templateText :: StringTemplate String
            filledTemplate = setManyAttrib [
                 ("tag", tag),
@@ -224,7 +225,11 @@ data FreedomAPIEntry = ApiEntry
     , apiRet :: [T.Text]
     } deriving (Show, Eq)
 
-data FreedomAPI = Api { entries :: [(T.Text, [(T.Text, FreedomAPIEntry)])] } deriving (Show, Eq)
+-- | (Interface, (Method Name, FreedomAPIEntry))
+data FreedomAPI = Api
+                  { entries :: [(T.Text, [(T.Text, FreedomAPIEntry)])]
+                  } deriving (Show, Eq)
+
 data FreedomManifest = Manifest
     { name :: T.Text
     , description :: T.Text
@@ -245,19 +250,13 @@ $(TH.deriveJSON TH.defaultOptions ''FreedomManifest)
 
 -- |FreedomAPI uses custom keys, so do this by hand.
 instance FromJSON FreedomAPI where
-    parseJSON (Object v) =
-        let readEntry (k, obj) =
-                let parsed = fromJSON obj
-                    interpret (Error _) = []
-                    interpret (Success s) = s
-                in (k, interpret parsed) :: (T.Text, [FreedomAPIEntry])
-            allEntries = map readEntry $ toList v
-            makeApi ents = Api { entries = ents }
-            readEntries [] = pure []
-            readEntries (x:xs) =
-              (:) <$> readEntry x <*> readEntries xs
-        in mzero -- makeApi <$> (readEntries <$> toList) -- FIXME
-    parseJSON _ = mzero
+    parseJSON =
+        let onSnd f = \(k, v) -> (k, f v)
+            expandEntries = map (onSnd toList)
+            -- expand a Value's hash-map to a list, then expand the values of
+            -- each list element to their own list.
+            makeApi = Api . expandEntries . toList
+        in fmap makeApi . parseJSON
 
 instance ToJSON FreedomAPI where
     toJSON api = let serializeMember (mem, body) = (mem, toJSON body)
@@ -365,25 +364,28 @@ generateTS options sourceDir decls = do
       exportedInterfaces = filter classExported decls
       prefix = ['>', ' ']
       print s = putStrLn (prefix ++ s)
+      printn n s = if optVerbose options > n
+                    then do print s
+                            return ()
+                    else return ()
+      print0 = printn 0
+      print1 = printn 1
+
   if length exportedInterfaces > 0
     then do let generatedFilenameBase = sourceDir </> className (head exportedInterfaces)
-            if optVerbose options > 1
-              then do print $ "Parsed input AST: " ++ (
-                         intercalate (nl : "    ") $ map show decls)
-                      return ()
-              else return ()
+            print1  $ "Parsed input AST: " ++ (intercalate (nl : "    ") $ map show decls)
             case ipc of
               FreedomMessaging ->  do
-                       print $ "Outputting to files " ++ generatedFilenameBase ++ "_(stub|skel).ts"
+                       print0 $ "Outputting to files " ++ generatedFilenameBase ++ "_(stub|skel).ts"
                        let stubText = concatMap (generateInterface (Just ipc) 1) decls
                            skelText = concatMap (generateSkeleton 1) decls
                        writeFile (generatedFilenameBase ++ "_stub.ts") stubText
                        writeFile (generatedFilenameBase ++ "_skel.ts") skelText
               FreedomJSON -> do
-                       print $ "Output to files " ++ generatedFilenameBase ++ "_skel.ts and " ++
-                             generatedFilenameBase ++ ".json."
+                       print0 $ "Output to files " ++ generatedFilenameBase ++ "_skel.ts and " ++
+                         generatedFilenameBase ++ ".json."
                        let skelText = concatMap (generateSkeleton 1) decls
-                       generateJson options (generatedFilenameBase ++ ".json") False decls
+                       generateJson options (generatedFilenameBase ++ ".json") (optMerge options) decls
                        writeFile (generatedFilenameBase ++ "_skel.ts") skelText
     else hPutStrLn stderr "> Failure.  No exported interfaces."
 \end{code}

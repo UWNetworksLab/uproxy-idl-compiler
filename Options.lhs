@@ -16,6 +16,8 @@ The primary options are:
   handle variable numbers of arguments.  Defaults to 10.
 \item \texttt{optVerbose} --- verbosity of output.  Default is 1, with
   higher numbers being more verbose.  0 is the 'STFU' option.
+\item \texttt{optMerge} --- merge changes in existing artifacts.
+  Defaults to False.  Only useful for \texttt{.json} files.
 \end{enumerate}
 
 \begin{code}
@@ -38,6 +40,7 @@ data Options = Options { optLanguage :: T.Language
                        , optMakeOutputDir :: Bool
                        , optRestArgCount :: Int
                        , optVerbose :: Int
+                       , optMerge :: Bool
                        }
 
 startOptions = Options { optLanguage = T.Typescript
@@ -48,6 +51,7 @@ startOptions = Options { optLanguage = T.Typescript
                        , optMakeOutputDir = False
                        , optRestArgCount = 10
                        , optVerbose = 1
+                       , optMerge = False
                        }
 
 options :: [ OptDescr (Options -> IO Options) ]
@@ -85,6 +89,11 @@ options =
                                        exitWith $ ExitFailure 1)
             "IPC")
         "IPC Mechanism to Use in Generated Code"
+
+    , Option "m" ["merge"]
+        (NoArg
+            (\opt -> return opt { optMerge = True }))
+        "Merge changes into existing artifacts"
 
     , Option "p" ["prefix"]
         (ReqArg

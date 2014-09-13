@@ -139,15 +139,14 @@ separate \ident{processInput} function.
 \begin{code}
 processInput programText opts = do
     (warnings, decls) <- parseDeclarations opts "input" programText
-    if optVerbose opts > 1 && length warnings > 0
-      then do putStrLn $ unlines $ warnings
-              return ()
-      else return ()
+    let log1 s = if optVerbose opts > 1
+                 then do putStrLn s
+                         return ()
+                 else return ()
+        log1c c s = if c then log1 s else return ()
+    log1c (length warnings > 0) $ unlines $ warnings
     let analysis = analyzeDeclarations opts decls
-    if optVerbose opts > 1
-      then do putStrLn "Finished analysis."
-              return ()
-      else return ()
+    log1 "Finished Analysis"
     if isLeft analysis
       then do putStrLn ("ERROR " ++ fromLeft analysis)
               putStrLn "Exiting from errors."
